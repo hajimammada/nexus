@@ -4,10 +4,12 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, Sys
 # Nexus PC Command Center - Native Windows Graphical Installer Wizard
 # =========================================================================
 
-# Check and auto-elevate to Administrator if not already elevated
+# Check and auto-elevate to Administrator with STA mode
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+$isSTA = [System.Threading.Thread]::CurrentThread.GetApartmentState() -eq [System.Threading.ApartmentState]::STA
+
+if (-not $isAdmin -or -not $isSTA) {
+    Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Sta -File `"$PSCommandPath`"" -Verb RunAs
     exit
 }
 
