@@ -9,6 +9,8 @@ os.makedirs(pub_dl, exist_ok=True)
 os.makedirs(dist_dl, exist_ok=True)
 
 pc_zip_pub = os.path.join(pub_dl, "nexus-pc-agent.zip")
+pc_zip_dist = os.path.join(dist_dl, "nexus-pc-agent.zip")
+
 # Compile Setup.exe from C# source
 print("Compiling native Setup.exe wizard...")
 wpf_dir = r"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\WPF"
