@@ -32,7 +32,7 @@ jobs:
 
       - name: Build Android APK
         working-directory: ./android
-        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon
+        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon --info
 
       - name: Prepare APK Asset
         run: |
