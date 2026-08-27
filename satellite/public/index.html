@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Nexus Satellite — Home Relay</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background-color: #080b12; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    .glass-card { background: rgba(18, 25, 43, 0.9); border: 1px solid rgba(56, 189, 248, 0.2); backdrop-filter: blur(12px); }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between p-4 selection:bg-cyan-500/30 selection:text-cyan-200">
+
+  <div class="w-full max-w-md mx-auto my-auto">
+    
+    <!-- Top Header -->
+    <div class="text-center mb-6">
+      <div class="inline-flex p-3 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 mb-3 shadow-lg shadow-cyan-500/10">
+        <svg class="w-8 h-8 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+        </svg>
+      </div>
+      <h1 class="text-2xl font-black tracking-tight text-white">NEXUS SATELLITE</h1>
+      <p class="text-xs text-slate-400 mt-1">24/7 Home Wake-on-LAN & Unlock Relay</p>
+    </div>
+
+    <!-- Status Banner -->
+    <div id="statusBanner" class="p-3.5 rounded-2xl glass-card text-center mb-5 flex items-center justify-center gap-2 border-slate-800">
+      <span id="statusDot" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
+      <span id="statusText" class="text-xs font-bold tracking-wider uppercase text-amber-400">Checking Status...</span>
+    </div>
+
+    <!-- VIEW 1: PAIRING VIEW (If Not Paired) -->
+    <div id="pairView" class="glass-card p-6 rounded-3xl shadow-2xl hidden">
+      <h3 class="text-sm font-bold text-white uppercase tracking-wider mb-2 flex items-center gap-2">
+        <span>🔗 Link with Main PC</span>
+      </h3>
+      <p class="text-xs text-slate-400 mb-5 leading-relaxed">
+        Enter the 6-digit PIN displayed on your PC installer or dashboard to link this device.
+      </p>
+
+      <div class="mb-4">
+        <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">6-Digit Pairing Code</label>
+        <input 
+          id="pairCodeInput" 
+          type="text" 
+          maxlength="7" 
+          placeholder="482-190" 
+          class="w-full text-center text-3xl font-mono font-black tracking-widest py-3 rounded-2xl bg-[#090d16] border border-cyan-500/40 text-cyan-300 focus:outline-none focus:border-cyan-400 transition-all"
+        />
+      </div>
+
+      <div class="mb-5">
+        <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Relay Server</label>
+        <input 
+          id="relayUrlInput" 
+          type="text" 
+          value="https://nexus.hajimammad.com" 
+          class="w-full text-xs font-mono py-2 px-3 rounded-xl bg-[#090d16] border border-slate-800 text-slate-300 focus:outline-none focus:border-cyan-500/40"
+        />
+      </div>
+
+      <button 
+        id="pairBtn" 
+        class="w-full py-3.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black text-sm tracking-wide shadow-lg shadow-cyan-500/30 transition-all cursor-pointer"
+      >
+        CONNECT & PAIR
+      </button>
+    </div>
+
+    <!-- VIEW 2: ACTIVE SATELLITE VIEW (If Paired) -->
+    <div id="activeView" class="glass-card p-6 rounded-3xl shadow-2xl hidden">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
+        <div>
+          <span class="text-[10px] uppercase font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+            Active Relay
+          </span>
+          <h2 id="targetHostname" class="text-lg font-bold text-white mt-1">Target-PC</h2>
+        </div>
+        <button id="unpairBtn" class="text-[11px] font-bold text-rose-400 hover:text-rose-300 underline cursor-pointer">
+          Unpair
+        </button>
+      </div>
+
+      <div class="space-y-2.5 text-xs mb-6">
+        <div class="flex items-center justify-between p-2.5 rounded-xl bg-[#0b101c] border border-slate-800/80">
+          <span class="text-slate-400">Target MAC:</span>
+          <span id="targetMac" class="font-mono font-bold text-cyan-300">Loading...</span>
+        </div>
+        <div class="flex items-center justify-between p-2.5 rounded-xl bg-[#0b101c] border border-slate-800/80">
+          <span class="text-slate-400">Target IP:</span>
+          <span id="targetIp" class="font-mono font-bold text-blue-300">Loading...</span>
+        </div>
+        <div class="flex items-center justify-between p-2.5 rounded-xl bg-[#0b101c] border border-slate-800/80">
+          <span class="text-slate-400">Relay Hub:</span>
+          <span id="relayHub" class="font-mono text-slate-300 truncate max-w-[180px]">nexus.hajimammad.com</span>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <button 
+          id="testWakeBtn" 
+          class="p-3 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-bold transition-all text-center cursor-pointer"
+        >
+          ⚡ Test Wake-on-LAN
+        </button>
+        <button 
+          id="testUnlockBtn" 
+          class="p-3 rounded-2xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-xs font-bold transition-all text-center cursor-pointer"
+        >
+          🔓 Test SSH Unlock
+        </button>
+      </div>
+    </div>
+
+    <div id="toast" class="mt-4 text-center text-xs font-bold py-2 px-4 rounded-xl hidden"></div>
+
+  </div>
+
+  <footer class="text-center text-[10px] text-slate-600 mt-6">
+    Nexus Universal Satellite Relay • Keep running 24/7 on Home Wi-Fi
+  </footer>
+
+  <script>
+    function showToast(msg, isError = false) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = 'mt-4 text-center text-xs font-bold py-2 px-4 rounded-xl ' + (isError ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30');
+      t.classList.remove('hidden');
+      setTimeout(() => t.classList.add('hidden'), 4000);
+    }
+
+    async function loadStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const pairView = document.getElementById('pairView');
+        const activeView = document.getElementById('activeView');
+
+        if (data.paired) {
+          statusDot.className = 'w-2.5 h-2.5 rounded-full ' + (data.cloudConnected ? 'bg-emerald-400 shadow-lg shadow-emerald-400' : 'bg-amber-400 animate-ping');
+          statusText.className = 'text-xs font-bold tracking-wider uppercase ' + (data.cloudConnected ? 'text-emerald-400' : 'text-amber-400');
+          statusText.textContent = data.cloudConnected ? 'ONLINE • READY TO RELAY' : 'RECONNECTING TO CLOUD...';
+
+          document.getElementById('targetHostname').textContent = data.hostname || 'Nexus PC';
+          document.getElementById('targetMac').textContent = data.targetMac || 'N/A';
+          document.getElementById('targetIp').textContent = data.targetIp || 'N/A';
+          document.getElementById('relayHub').textContent = (data.relayUrl || '').replace('https://', '');
+
+          pairView.classList.add('hidden');
+          activeView.classList.remove('hidden');
+        } else {
+          statusDot.className = 'w-2.5 h-2.5 rounded-full bg-rose-400';
+          statusText.className = 'text-xs font-bold tracking-wider uppercase text-rose-400';
+          statusText.textContent = 'UNPAIRED • ENTER PIN';
+
+          pairView.classList.remove('hidden');
+          activeView.classList.add('hidden');
+        }
+      } catch (err) {
+        console.error('Error fetching status:', err);
+      }
+    }
+
+    document.getElementById('pairBtn').addEventListener('click', async () => {
+      const code = document.getElementById('pairCodeInput').value;
+      const relayUrl = document.getElementById('relayUrlInput').value;
+      if (!code) return showToast('Please enter the 6-digit code', true);
+
+      document.getElementById('pairBtn').textContent = 'PAIRING...';
+      try {
+        const res = await fetch('/api/pair', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pairCode: code, relayUrl })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast('Paired successfully with PC!');
+          setTimeout(loadStatus, 1000);
+        } else {
+          showToast(data.error || 'Pairing failed', true);
+        }
+      } catch (err) {
+        showToast('Network error pairing', true);
+      } finally {
+        document.getElementById('pairBtn').textContent = 'CONNECT & PAIR';
+      }
+    });
+
+    document.getElementById('unpairBtn').addEventListener('click', async () => {
+      if (!confirm('Are you sure you want to unpair this satellite?')) return;
+      await fetch('/api/unpair', { method: 'POST' });
+      loadStatus();
+    });
+
+    document.getElementById('testWakeBtn').addEventListener('click', async () => {
+      showToast('Broadcasting Wake-on-LAN magic packet...');
+      const res = await fetch('/api/test/wake', { method: 'POST' });
+      const data = await res.json();
+      showToast(data.message || 'WOL dispatched', !data.success);
+    });
+
+    document.getElementById('testUnlockBtn').addEventListener('click', async () => {
+      showToast('Dispatching OpenSSH unlock command...');
+      const res = await fetch('/api/test/unlock', { method: 'POST' });
+      const data = await res.json();
+      showToast(data.message || 'Unlock dispatched', !data.success);
+    });
+
+    loadStatus();
+    setInterval(loadStatus, 4000);
+  </script>
+</body>
+</html>

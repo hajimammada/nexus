@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Power, 
   Moon, 
   RotateCcw, 
   Lock, 
+  Unlock, 
   Zap, 
   Monitor, 
   Bot, 
@@ -11,49 +12,45 @@ import {
   Cpu, 
   HardDrive, 
   ArrowUpRight, 
-  ExternalLink, 
-  Sparkles, 
   Terminal, 
   Activity,
-  ShieldCheck,
-  Radio
+  Radio,
+  Link2,
+  CheckCircle2
 } from 'lucide-react';
 
 import ConfirmPowerModal from './components/ConfirmPowerModal';
 import SettingsModal from './components/SettingsModal';
 import TerminalModal from './components/TerminalModal';
+import PairModal from './components/PairModal';
 import Toast from './components/Toast';
 
 import { 
   getStoredSettings, 
   saveStoredSettings, 
   fetchAgentStatus, 
-  triggerMacroDroid, 
-  executePowerAction 
+  executePowerAction, 
+  claimPairCode,
+  RelayManager 
 } from './utils/api';
 
-const APP_VERSION = 'v2.1.2';
+const APP_VERSION = 'v3.0.0-standard';
 
 export default function App() {
   const [settings, setSettings] = useState(() => getStoredSettings());
   const [telemetry, setTelemetry] = useState(null);
-  const [isAgentOnline, setIsAgentOnline] = useState(false);
-  const [isTriggeringMacroDroid, setIsTriggeringMacroDroid] = useState(false);
+  const [connectionState, setConnectionState] = useState({ online: false, source: 'none' });
   const [time, setTime] = useState(new Date());
 
   // Modals state
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
+  const [isPairOpen, setIsPairOpen] = useState(false);
   const [powerActionModal, setPowerActionModal] = useState({ isOpen: false, action: null });
 
   // Toasts state
   const [toasts, setToasts] = useState([]);
-
-  // Live Clock
-  useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const relayManagerRef = useRef(null);
 
   const addToast = useCallback((message, type = 'info') => {
     const id = Date.now() + Math.random();
@@ -67,54 +64,97 @@ export default function App() {
     setToasts(prev => prev.filter(t => t.id !== id));
   };
 
-  // Poll PC Companion Agent
-  const checkAgent = useCallback(async () => {
-    if (!settings.agentUrl) return;
+  // Live Clock
+  useEffect(() => {
+    const timer = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Initialize Real-Time Relay Manager
+  useEffect(() => {
+    const relay = new RelayManager({
+      relayUrl: settings.relayUrl,
+      roomId: settings.roomId,
+      token: settings.token,
+      onTelemetry: (data) => {
+        setTelemetry(data);
+      },
+      onStateChange: (state) => {
+        setConnectionState(state);
+      },
+      onActionResponse: (res) => {
+        if (res.success) {
+          addToast(res.message || `${res.action} completed!`, 'success');
+        } else {
+          addToast(res.error || `${res.action} failed.`, 'error');
+        }
+      }
+    });
+
+    relayManagerRef.current = relay;
+    if (settings.roomId) {
+      relay.connect();
+    }
+
+    return () => relay.disconnect();
+  }, [settings.relayUrl, settings.roomId, settings.token, addToast]);
+
+  // Check URL Hash for 1-Tap Pairing Link (#pair=482-190)
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash && hash.includes('pair=')) {
+      const match = hash.match(/pair=([0-9a-zA-Z-]+)/);
+      if (match && match[1]) {
+        const code = match[1];
+        addToast(`Discovered pairing PIN [${code}]. Linking...`, 'info');
+        claimPairCode(code, settings.relayUrl)
+          .then(data => {
+            const updated = { ...settings, ...data, pairCode: code };
+            setSettings(updated);
+            saveStoredSettings(updated);
+            addToast(`Successfully paired with ${data.hostname || 'PC'}!`, 'success');
+            window.history.replaceState(null, '', window.location.pathname);
+          })
+          .catch(err => {
+            addToast(`1-Tap Pairing error: ${err.message}`, 'error');
+          });
+      }
+    }
+  }, [settings, addToast]);
+
+  // Fallback Local LAN Polling
+  const checkLocalAgent = useCallback(async () => {
+    if (!settings.agentUrl || connectionState.online) return;
     try {
       const res = await fetchAgentStatus(settings.agentUrl, settings.agentKey);
       if (res.online) {
-        setIsAgentOnline(true);
+        setConnectionState({ online: true, source: 'local' });
         setTelemetry(res);
-      } else {
-        setIsAgentOnline(false);
       }
-    } catch {
-      setIsAgentOnline(false);
-    }
-  }, [settings.agentUrl, settings.agentKey]);
+    } catch {}
+  }, [settings.agentUrl, settings.agentKey, connectionState.online]);
 
   useEffect(() => {
-    checkAgent();
-    if (settings.autoRefreshStats) {
-      const interval = setInterval(checkAgent, settings.refreshIntervalMs || 4000);
+    if (!settings.roomId && settings.agentUrl) {
+      checkLocalAgent();
+      const interval = setInterval(checkLocalAgent, 4000);
       return () => clearInterval(interval);
     }
-  }, [checkAgent, settings.autoRefreshStats, settings.refreshIntervalMs]);
+  }, [checkLocalAgent, settings.roomId, settings.agentUrl]);
 
   const handleSaveSettings = (newSettings) => {
     setSettings(newSettings);
     saveStoredSettings(newSettings);
+    if (relayManagerRef.current) {
+      relayManagerRef.current.updateConfig(newSettings.relayUrl, newSettings.roomId, newSettings.token);
+    }
   };
 
-  // Trigger MacroDroid Webhook to Power On PC
-  const handleTriggerMacroDroid = async () => {
-    if (!settings.macrodroidWebhookUrl) {
-      addToast('Please configure your MacroDroid Webhook URL in Settings first.', 'error');
-      setIsSettingsOpen(true);
-      return;
-    }
-
-    setIsTriggeringMacroDroid(true);
-    addToast('Dispatching MacroDroid Power-ON signal...', 'info');
-
-    try {
-      const res = await triggerMacroDroid(settings.macrodroidWebhookUrl, settings.agentUrl, settings.agentKey);
-      addToast(res.message || 'MacroDroid Power-ON triggered successfully!', 'success');
-    } catch (err) {
-      addToast(err.message || 'Failed to dispatch MacroDroid signal', 'error');
-    } finally {
-      setIsTriggeringMacroDroid(false);
-    }
+  const handlePaired = (pairedData) => {
+    const updated = { ...settings, ...pairedData };
+    setSettings(updated);
+    saveStoredSettings(updated);
+    addToast(`Successfully paired with ${pairedData.hostname || 'PC'}!`, 'success');
   };
 
   // Request Power Action
@@ -124,21 +164,21 @@ export default function App() {
 
   const handleConfirmPowerAction = async (action) => {
     try {
-      addToast(`Executing ${action.toUpperCase()} on PC...`, 'info');
-      const res = await executePowerAction(action, settings.agentUrl, settings.agentKey);
-      addToast(res.message || `${action.toUpperCase()} executed successfully!`, 'success');
-      setTimeout(checkAgent, 2000);
+      addToast(`Dispatching ${action.toUpperCase()} command...`, 'info');
+      const res = await executePowerAction(action, settings, relayManagerRef.current);
+      addToast(res.message || `${action.toUpperCase()} signal sent!`, 'success');
     } catch (err) {
       addToast(err.message || `Failed to execute ${action}`, 'error');
     }
   };
 
-  const handleAbortPowerAction = async () => {
+  const handleDirectAction = async (action) => {
     try {
-      const res = await executePowerAction('abort', settings.agentUrl, settings.agentKey);
-      addToast(res.message || 'Shutdown/Restart cancelled!', 'success');
+      addToast(`Triggering ${action.toUpperCase()}...`, 'info');
+      const res = await executePowerAction(action, settings, relayManagerRef.current);
+      addToast(res.message || `${action.toUpperCase()} sent!`, 'success');
     } catch (err) {
-      addToast(err.message || 'Failed to abort action', 'error');
+      addToast(err.message || `Failed to execute ${action}`, 'error');
     }
   };
 
@@ -147,6 +187,7 @@ export default function App() {
 
   const cpuPercent = telemetry?.cpuUsagePercent || 0;
   const ramPercent = telemetry?.ramUsagePercent || 0;
+  const isPcOnline = connectionState.online;
 
   const remoteDesktopUrl = settings.remoteDesktopUrl || 'https://remotedesktop.google.com/access';
   const antigravityUrl = settings.antigravityUrl || 'https://antigravity.google.com';
@@ -173,8 +214,8 @@ export default function App() {
                 </div>
               </div>
               <span className="absolute -bottom-1 -right-1 flex h-4 w-4">
-                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isAgentOnline ? 'bg-emerald-400' : 'bg-rose-400'}`}></span>
-                <span className={`relative inline-flex rounded-full h-4 w-4 border-2 border-[#0d1322] ${isAgentOnline ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isPcOnline ? 'bg-emerald-400' : 'bg-rose-400'}`}></span>
+                <span className={`relative inline-flex rounded-full h-4 w-4 border-2 border-[#0d1322] ${isPcOnline ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
               </span>
             </div>
 
@@ -187,25 +228,30 @@ export default function App() {
                   {APP_VERSION}
                 </span>
                 <span className={`text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full border ${
-                  isAgentOnline 
+                  isPcOnline 
                     ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
                     : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
                 }`}>
-                  {isAgentOnline ? 'PC ONLINE' : 'PC OFFLINE / STANDBY'}
+                  {isPcOnline 
+                    ? (connectionState.source === 'relay' ? 'ONLINE (CLOUD RELAY)' : 'ONLINE (LOCAL LAN)')
+                    : 'PC STANDBY / OFFLINE'}
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-1">
-                Target: <span className="text-slate-200 font-mono font-semibold">{telemetry?.hostname || 'Host-PC'}</span>
+                Target: <span className="text-slate-200 font-mono font-semibold">{settings.hostname || telemetry?.hostname || 'My-PC'}</span>
                 {telemetry?.uptimeFormatted && (
                   <> • Uptime: <span className="text-cyan-300 font-mono">{telemetry.uptimeFormatted}</span></>
+                )}
+                {settings.pairCode && (
+                  <> • Room PIN: <span className="text-amber-300 font-mono">{settings.pairCode}</span></>
                 )}
               </p>
             </div>
           </div>
 
-          {/* Right: Clock & Settings */}
-          <div className="flex items-center gap-5">
-            <div className="text-right">
+          {/* Right: Clock & Quick Actions */}
+          <div className="flex items-center gap-4">
+            <div className="text-right hidden sm:block">
               <div className="font-mono text-3xl font-bold tracking-wider text-slate-100 drop-shadow">
                 {formattedTime}
               </div>
@@ -214,10 +260,21 @@ export default function App() {
               </div>
             </div>
 
+            {/* Pair PC Button */}
+            <button
+              onClick={() => setIsPairOpen(true)}
+              className="p-3.5 rounded-2xl bg-[#111726] hover:bg-[#19233a] text-cyan-400 border border-cyan-500/30 hover:border-cyan-400 transition-all duration-200 shadow-lg cursor-pointer flex items-center gap-2 text-xs font-bold"
+              title="Pair with 6-Digit PIN"
+            >
+              <Link2 className="w-4 h-4" />
+              <span className="hidden md:inline">{settings.roomId ? 'Paired' : 'Pair PC'}</span>
+            </button>
+
+            {/* Settings Button */}
             <button
               onClick={() => setIsSettingsOpen(true)}
               className="p-3.5 rounded-2xl bg-[#111726] hover:bg-[#19233a] text-slate-300 hover:text-cyan-400 border border-slate-700/80 hover:border-cyan-500/40 transition-all duration-200 shadow-lg group cursor-pointer"
-              title="Configure Webhooks & Remote Access"
+              title="Configure Settings"
             >
               <Settings className="w-5 h-5 group-hover:rotate-45 transition-transform duration-300" />
             </button>
@@ -225,50 +282,72 @@ export default function App() {
 
         </div>
 
-        {/* SECTION 1: SYSTEM POWER MANAGEMENT (5 EQUAL-SIZED TILES) */}
+        {/* SECTION 1: SYSTEM POWER MANAGEMENT (6 EQUAL-SIZED TILES) */}
         <div className="mb-8">
           
           <div className="flex items-center justify-between mb-4 px-1">
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
               <Zap className="w-4 h-4 text-cyan-400" />
-              System Power Management
+              System Power & Security Management
             </h2>
             <span className="text-xs text-slate-500">
-              Instant Control (Before & After Unlock)
+              Universal Remote Control (Before & After Unlock)
             </span>
           </div>
 
-          {/* Equal-sized 5-button responsive grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          {/* Equal-sized 6-button responsive grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             
             {/* 1. Turn ON (Wake-on-LAN) Tile */}
             <button
-              onClick={handleTriggerMacroDroid}
-              disabled={isTriggeringMacroDroid}
+              onClick={() => handleDirectAction('wake')}
               className="relative p-5 rounded-3xl bg-[#111728]/95 hover:bg-emerald-950/60 border border-emerald-500/30 hover:border-emerald-500/60 shadow-lg text-left transition-all duration-200 group flex flex-col justify-between cursor-pointer min-h-[170px]"
             >
               <div className="flex items-center justify-between w-full mb-3">
                 <div className="p-3 rounded-2xl bg-emerald-500/10 text-emerald-400 group-hover:scale-110 transition-transform">
-                  <Power className={`w-6 h-6 ${isTriggeringMacroDroid ? 'animate-spin' : ''}`} />
+                  <Power className="w-6 h-6" />
                 </div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                  Wake-on-LAN
+                  WOL
                 </span>
               </div>
               <div>
                 <h4 className="font-bold text-white text-base group-hover:text-emerald-300 transition-colors">
-                  {isTriggeringMacroDroid ? 'Waking PC...' : 'Turn ON PC'}
+                  Turn ON PC
                 </h4>
                 <p className="text-xs text-slate-400 mt-1 leading-snug">
-                  MacroDroid power signal
+                  Magic packet via Satellite
                 </p>
               </div>
             </button>
 
-            {/* 2. Sleep PC Tile */}
+            {/* 2. Unlock PC Tile */}
+            <button
+              onClick={() => handleDirectAction('unlock')}
+              className="relative p-5 rounded-3xl bg-[#111728]/95 hover:bg-cyan-950/60 border border-cyan-500/30 hover:border-cyan-500/60 shadow-lg text-left transition-all duration-200 group flex flex-col justify-between cursor-pointer min-h-[170px]"
+            >
+              <div className="flex items-center justify-between w-full mb-3">
+                <div className="p-3 rounded-2xl bg-cyan-500/10 text-cyan-400 group-hover:scale-110 transition-transform">
+                  <Unlock className="w-6 h-6" />
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20">
+                  SSH Unlock
+                </span>
+              </div>
+              <div>
+                <h4 className="font-bold text-white text-base group-hover:text-cyan-300 transition-colors">
+                  Unlock Screen
+                </h4>
+                <p className="text-xs text-slate-400 mt-1 leading-snug">
+                  Bypass Windows lock
+                </p>
+              </div>
+            </button>
+
+            {/* 3. Sleep PC Tile */}
             <button
               onClick={() => handleRequestPowerAction('sleep')}
-              disabled={!isAgentOnline}
+              disabled={!isPcOnline}
               className="relative p-5 rounded-3xl bg-[#111728]/95 hover:bg-indigo-950/60 border border-indigo-500/30 hover:border-indigo-500/60 shadow-lg text-left transition-all duration-200 group flex flex-col justify-between disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer min-h-[170px]"
             >
               <div className="flex items-center justify-between w-full mb-3">
@@ -289,10 +368,10 @@ export default function App() {
               </div>
             </button>
 
-            {/* 3. Restart PC Tile */}
+            {/* 4. Restart PC Tile */}
             <button
               onClick={() => handleRequestPowerAction('restart')}
-              disabled={!isAgentOnline}
+              disabled={!isPcOnline}
               className="relative p-5 rounded-3xl bg-[#111728]/95 hover:bg-amber-950/60 border border-amber-500/30 hover:border-amber-500/60 shadow-lg text-left transition-all duration-200 group flex flex-col justify-between disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer min-h-[170px]"
             >
               <div className="flex items-center justify-between w-full mb-3">
@@ -313,10 +392,10 @@ export default function App() {
               </div>
             </button>
 
-            {/* 4. Shut Down PC Tile */}
+            {/* 5. Shut Down PC Tile */}
             <button
               onClick={() => handleRequestPowerAction('shutdown')}
-              disabled={!isAgentOnline}
+              disabled={!isPcOnline}
               className="relative p-5 rounded-3xl bg-[#111728]/95 hover:bg-rose-950/60 border border-rose-500/30 hover:border-rose-500/60 shadow-lg text-left transition-all duration-200 group flex flex-col justify-between disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer min-h-[170px]"
             >
               <div className="flex items-center justify-between w-full mb-3">
@@ -332,31 +411,31 @@ export default function App() {
                   Shut Down
                 </h4>
                 <p className="text-xs text-slate-400 mt-1 leading-snug">
-                  Complete hardware shutdown
+                  Complete shutdown
                 </p>
               </div>
             </button>
 
-            {/* 5. Lock Workstation Tile */}
+            {/* 6. Lock Workstation Tile */}
             <button
               onClick={() => handleRequestPowerAction('lock')}
-              disabled={!isAgentOnline}
-              className="relative p-5 rounded-3xl bg-[#111728]/95 hover:bg-cyan-950/60 border border-cyan-500/30 hover:border-cyan-500/60 shadow-lg text-left transition-all duration-200 group flex flex-col justify-between disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer min-h-[170px]"
+              disabled={!isPcOnline}
+              className="relative p-5 rounded-3xl bg-[#111728]/95 hover:bg-blue-950/60 border border-blue-500/30 hover:border-blue-500/60 shadow-lg text-left transition-all duration-200 group flex flex-col justify-between disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer min-h-[170px]"
             >
               <div className="flex items-center justify-between w-full mb-3">
-                <div className="p-3 rounded-2xl bg-cyan-500/10 text-cyan-400 group-hover:scale-110 transition-transform">
+                <div className="p-3 rounded-2xl bg-blue-500/10 text-blue-400 group-hover:scale-110 transition-transform">
                   <Lock className="w-6 h-6" />
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20">
-                  Security
+                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">
+                  Lock
                 </span>
               </div>
               <div>
-                <h4 className="font-bold text-white text-base group-hover:text-cyan-300 transition-colors">
+                <h4 className="font-bold text-white text-base group-hover:text-blue-300 transition-colors">
                   Lock Screen
                 </h4>
                 <p className="text-xs text-slate-400 mt-1 leading-snug">
-                  Lock active desktop session
+                  Lock active session
                 </p>
               </div>
             </button>
@@ -382,12 +461,10 @@ export default function App() {
             
             {/* 1. Chrome Remote Desktop Card */}
             <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#12192b]/95 to-[#0e1424]/95 border border-blue-500/30 hover:border-blue-500/60 p-6 shadow-xl group transition-all duration-300 flex flex-col justify-between min-h-[260px]">
-              
               <div className="flex items-start gap-4 mb-6">
                 <div className="w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400 group-hover:scale-105 group-hover:bg-blue-500/20 transition-all duration-300 shrink-0">
                   <Monitor className="w-7 h-7" />
                 </div>
-
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="font-bold text-white text-lg group-hover:text-blue-300 transition-colors">
@@ -403,7 +480,7 @@ export default function App() {
                 </div>
               </div>
 
-              {isAgentOnline ? (
+              {isPcOnline ? (
                 <a
                   href={remoteDesktopUrl}
                   target="_blank"
@@ -422,17 +499,14 @@ export default function App() {
                   <ArrowUpRight className="w-4 h-4 text-slate-400" />
                 </button>
               )}
-
             </div>
 
             {/* 2. Google Antigravity Card */}
             <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#12192b]/95 to-[#0e1424]/95 border border-purple-500/30 hover:border-purple-500/60 p-6 shadow-xl group transition-all duration-300 flex flex-col justify-between min-h-[260px]">
-              
               <div className="flex items-start gap-4 mb-6">
                 <div className="w-14 h-14 rounded-2xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400 group-hover:scale-105 group-hover:bg-purple-500/20 transition-all duration-300 shrink-0">
                   <Bot className="w-7 h-7" />
                 </div>
-
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="font-bold text-white text-lg group-hover:text-purple-300 transition-colors">
@@ -448,7 +522,7 @@ export default function App() {
                 </div>
               </div>
 
-              {isAgentOnline ? (
+              {isPcOnline ? (
                 <a
                   href={antigravityUrl}
                   target="_blank"
@@ -467,17 +541,14 @@ export default function App() {
                   <ArrowUpRight className="w-4 h-4 text-slate-400" />
                 </button>
               )}
-
             </div>
 
             {/* 3. Remote PowerShell Terminal Card */}
             <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#12192b]/95 to-[#0e1424]/95 border border-emerald-500/30 hover:border-emerald-500/60 p-6 shadow-xl group transition-all duration-300 flex flex-col justify-between min-h-[260px]">
-              
               <div className="flex items-start gap-4 mb-6">
                 <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-105 group-hover:bg-emerald-500/20 transition-all duration-300 shrink-0">
                   <Terminal className="w-7 h-7" />
                 </div>
-
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="font-bold text-white text-lg group-hover:text-emerald-300 transition-colors">
@@ -495,13 +566,12 @@ export default function App() {
 
               <button
                 onClick={() => setIsTerminalOpen(true)}
-                disabled={!isAgentOnline}
+                disabled={!isPcOnline}
                 className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
                 <Terminal className="w-4 h-4 text-slate-950" />
                 <span>Open PowerShell Console</span>
               </button>
-
             </div>
 
           </div>
@@ -532,13 +602,13 @@ export default function App() {
                   CPU Utilization
                 </span>
                 <span className="font-mono font-bold text-cyan-400">
-                  {isAgentOnline ? `${cpuPercent}%` : 'Offline'}
+                  {isPcOnline ? `${cpuPercent}%` : 'Standby'}
                 </span>
               </div>
               <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
                 <div 
                   className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all duration-500 rounded-full"
-                  style={{ width: `${isAgentOnline ? cpuPercent : 0}%` }}
+                  style={{ width: `${isPcOnline ? cpuPercent : 0}%` }}
                 ></div>
               </div>
             </div>
@@ -551,13 +621,13 @@ export default function App() {
                   Memory Usage {telemetry?.usedRamGB ? `(${telemetry.usedRamGB} / ${telemetry.totalRamGB} GB)` : ''}
                 </span>
                 <span className="font-mono font-bold text-purple-400">
-                  {isAgentOnline ? `${ramPercent}%` : 'Offline'}
+                  {isPcOnline ? `${ramPercent}%` : 'Standby'}
                 </span>
               </div>
               <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
                 <div 
                   className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500 rounded-full"
-                  style={{ width: `${isAgentOnline ? ramPercent : 0}%` }}
+                  style={{ width: `${isPcOnline ? ramPercent : 0}%` }}
                 ></div>
               </div>
             </div>
@@ -577,21 +647,33 @@ export default function App() {
             <span>• Remote PC Control Dashboard</span>
           </div>
 
-          <div className="flex items-center gap-3 text-[11px]">
+          <div className="flex items-center gap-4 text-[11px]">
+            <button onClick={() => setIsPairOpen(true)} className="hover:text-cyan-300 transition-colors cursor-pointer flex items-center gap-1">
+              <Link2 className="w-3.5 h-3.5" />
+              <span>6-Digit PIN Pairing</span>
+            </button>
+            <span>•</span>
             <button onClick={() => setIsSettingsOpen(true)} className="hover:text-cyan-300 transition-colors cursor-pointer">
-              Settings & Remote Tunnels
+              Settings & Relays
             </button>
           </div>
         </div>
       </footer>
 
       {/* Modals */}
+      <PairModal
+        isOpen={isPairOpen}
+        onClose={() => setIsPairOpen(false)}
+        onPaired={handlePaired}
+        currentPairCode={settings.pairCode}
+      />
+
       <ConfirmPowerModal
         isOpen={powerActionModal.isOpen}
         action={powerActionModal.action}
         onClose={() => setPowerActionModal({ isOpen: false, action: null })}
         onConfirm={handleConfirmPowerAction}
-        onAbort={handleAbortPowerAction}
+        onAbort={() => handleConfirmPowerAction('abort')}
       />
 
       <SettingsModal
@@ -610,7 +692,7 @@ export default function App() {
         onClose={() => setIsTerminalOpen(false)}
         agentUrl={settings.agentUrl}
         agentKey={settings.agentKey}
-        isAgentOnline={isAgentOnline}
+        isAgentOnline={isPcOnline}
       />
 
       <Toast toasts={toasts} onDismiss={dismissToast} />

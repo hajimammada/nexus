@@ -1,11 +1,18 @@
-// Nexus Dashboard API & Storage Utilities
+// Nexus Standard Dashboard API, Relay WebSocket & Storage Utilities
 
-const SETTINGS_KEY = 'nexus_dashboard_settings_v5';
+const SETTINGS_KEY = 'nexus_dashboard_standard_v6';
 
 export const DEFAULT_SETTINGS = {
-  macrodroidWebhookUrl: '', // e.g. https://trigger.macrodroid.com/xxxx/power-on
+  relayUrl: typeof window !== 'undefined' ? window.location.origin : 'https://nexus.hajimammad.com',
+  roomId: '',
+  token: '',
+  pairCode: '',
+  targetMac: '',
+  targetIp: '',
+  hostname: '',
   agentUrl: '',
   agentKey: '',
+  macrodroidWebhookUrl: '',
   remoteDesktopUrl: 'https://remotedesktop.google.com/access',
   antigravityUrl: 'https://antigravity.google.com',
   autoRefreshStats: true,
@@ -34,77 +41,276 @@ export function saveStoredSettings(settings) {
   }
 }
 
-// Smart Configuration File Parser (Supports JSON, Markdown, ENV, and Text)
+// -------------------------------------------------------------
+// 1. 6-Digit Pairing Claim Helper
+// -------------------------------------------------------------
+export async function claimPairCode(pairCode, relayUrl = null) {
+  if (!pairCode) throw new Error('Pairing code is required.');
+  const cleanCode = pairCode.toString().trim().replace(/[-\s]/g, '');
+  const baseRelay = (relayUrl || DEFAULT_SETTINGS.relayUrl).replace(/\/$/, '');
+
+  const res = await fetch(`${baseRelay}/api/pair/claim`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pairCode: cleanCode })
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to claim 6-digit pairing code.');
+  }
+
+  return {
+    relayUrl: baseRelay,
+    roomId: data.roomId,
+    token: data.token,
+    pairCode: data.pairCode,
+    targetMac: data.targetMac,
+    targetIp: data.targetIp,
+    hostname: data.hostname,
+    agentKey: data.agentKey
+  };
+}
+
+// -------------------------------------------------------------
+// 2. Real-Time Cloudflare WebSocket Relay Client
+// -------------------------------------------------------------
+export class RelayManager {
+  constructor(options = {}) {
+    this.relayUrl = options.relayUrl || DEFAULT_SETTINGS.relayUrl;
+    this.roomId = options.roomId || '';
+    this.token = options.token || '';
+    this.ws = null;
+    this.isConnected = false;
+    this.onTelemetry = options.onTelemetry || (() => {});
+    this.onStateChange = options.onStateChange || (() => {});
+    this.onTerminalResult = options.onTerminalResult || (() => {});
+    this.onActionResponse = options.onActionResponse || (() => {});
+    this.reconnectTimer = null;
+    this.reqCallbacks = new Map();
+  }
+
+  updateConfig(relayUrl, roomId, token) {
+    this.relayUrl = relayUrl || this.relayUrl;
+    this.roomId = roomId || this.roomId;
+    this.token = token || this.token;
+    this.connect();
+  }
+
+  connect() {
+    if (!this.roomId) return;
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
+    const baseRelay = this.relayUrl.replace(/\/$/, '');
+    const wsUrl = `${baseRelay.replace(/^http/, 'ws')}/api/relay?room=${encodeURIComponent(this.roomId)}&role=client&token=${encodeURIComponent(this.token)}`;
+
+    try {
+      this.ws = new WebSocket(wsUrl);
+
+      this.ws.onopen = () => {
+        this.isConnected = true;
+        this.onStateChange({ online: true, source: 'relay' });
+      };
+
+      this.ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'TELEMETRY' && msg.data) {
+            this.onTelemetry(msg.data);
+            this.onStateChange({ online: true, source: 'relay' });
+          } else if (msg.type === 'ROOM_STATE') {
+            this.onStateChange({ online: msg.online, agentsCount: msg.agentsCount, satellitesCount: msg.satellitesCount, source: 'relay' });
+          } else if (msg.type === 'TERMINAL_RESULT') {
+            this.onTerminalResult(msg.result);
+          } else if (msg.type === 'ACTION_RESPONSE') {
+            this.onActionResponse(msg);
+          }
+        } catch (e) {}
+      };
+
+      this.ws.onclose = () => {
+        this.isConnected = false;
+        this.onStateChange({ online: false, source: 'relay' });
+        this.scheduleReconnect();
+      };
+
+      this.ws.onerror = () => {
+        this.isConnected = false;
+        this.ws.close();
+      };
+    } catch (e) {
+      this.scheduleReconnect();
+    }
+  }
+
+  scheduleReconnect() {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = setTimeout(() => this.connect(), 4000);
+  }
+
+  sendCommand(action, subAction = null, payload = {}) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('Relay connection is not open.');
+    }
+    const reqId = Date.now() + Math.random().toString(36).slice(2);
+    this.ws.send(JSON.stringify({
+      type: 'COMMAND',
+      action,
+      subAction,
+      payload,
+      reqId,
+      timestamp: new Date().toISOString()
+    }));
+    return reqId;
+  }
+
+  disconnect() {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+    this.isConnected = false;
+  }
+}
+
+// -------------------------------------------------------------
+// 3. Power Actions (Relay & Local Fallback)
+// -------------------------------------------------------------
+export async function executePowerAction(action, settings, relayManager = null, options = {}) {
+  // 1. Try WebSocket Relay First
+  if (relayManager && relayManager.isConnected) {
+    if (action === 'wake') {
+      relayManager.sendCommand('WAKE', null, { targetMac: settings.targetMac });
+      return { success: true, message: 'Wake-on-LAN magic packet dispatched via Home Satellite!' };
+    }
+    if (action === 'unlock') {
+      relayManager.sendCommand('UNLOCK', null, { targetIp: settings.targetIp });
+      return { success: true, message: 'OpenSSH unlock signal dispatched via Home Satellite!' };
+    }
+    // Power actions (sleep, restart, shutdown, lock)
+    relayManager.sendCommand('POWER', action, options);
+    return { success: true, message: `${action.toUpperCase()} command dispatched to PC!` };
+  }
+
+  // 2. Direct HTTP Local Fallback (if on same Wi-Fi)
+  if (settings.agentUrl) {
+    const baseUrl = settings.agentUrl.replace(/\/$/, '');
+    const headers = { 'Content-Type': 'application/json' };
+    if (settings.agentKey) headers['Authorization'] = `Bearer ${settings.agentKey}`;
+
+    const res = await fetch(`${baseUrl}/api/power/${action}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(options)
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || `Failed to execute ${action}`);
+    return data;
+  }
+
+  throw new Error('Neither Cloud Relay nor Local Agent is currently connected.');
+}
+
+// -------------------------------------------------------------
+// 4. Remote Terminal Command
+// -------------------------------------------------------------
+export async function executeTerminalCommand(command, settings, relayManager = null, cwd = null) {
+  if (relayManager && relayManager.isConnected) {
+    relayManager.sendCommand('TERMINAL', null, { command, cwd });
+    return { success: true, message: 'Command sent to PC via Relay.' };
+  }
+
+  if (settings.agentUrl) {
+    const baseUrl = settings.agentUrl.replace(/\/$/, '');
+    const headers = { 'Content-Type': 'application/json' };
+    if (settings.agentKey) headers['Authorization'] = `Bearer ${settings.agentKey}`;
+
+    const res = await fetch(`${baseUrl}/api/terminal/exec`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ command, cwd })
+    });
+    const data = await res.json();
+    return data;
+  }
+
+  throw new Error('Terminal offline: No active Relay or Local connection.');
+}
+
+// -------------------------------------------------------------
+// 5. Fetch Agent Status (HTTP Local Poll)
+// -------------------------------------------------------------
+export async function fetchAgentStatus(agentUrl, agentKey) {
+  if (!agentUrl) return { online: false };
+  const baseUrl = agentUrl.replace(/\/$/, '');
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (agentKey) headers['Authorization'] = `Bearer ${agentKey}`;
+
+    const res = await fetch(`${baseUrl}/api/status`, {
+      method: 'GET',
+      headers,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) return { online: false };
+    const data = await res.json();
+    return data.success ? { online: true, ...data.data } : { online: false };
+  } catch {
+    clearTimeout(timeoutId);
+    return { online: false };
+  }
+}
+
+// Legacy MacroDroid Fallback
+export async function triggerMacroDroid(webhookUrl) {
+  if (!webhookUrl || !webhookUrl.trim()) throw new Error('MacroDroid URL not configured.');
+  await fetch(webhookUrl.trim(), { method: 'GET', mode: 'no-cors' });
+  return { success: true, message: 'MacroDroid WOL webhook triggered!' };
+}
+
+// Smart Configuration File Parser
 export function parseSettingsFile(rawText) {
   if (!rawText || typeof rawText !== 'string') {
     throw new Error('Selected file is empty or invalid.');
   }
 
   const result = {};
-
-  // 1. Try parsing as JSON first
   const trimmed = rawText.trim();
   if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
     try {
       const parsed = JSON.parse(trimmed);
-      if (parsed.agentUrl || parsed.AGENT_URL || parsed.agent_url) {
-        result.agentUrl = parsed.agentUrl || parsed.AGENT_URL || parsed.agent_url || '';
-      }
-      if (parsed.agentKey || parsed.AGENT_KEY || parsed.agent_key) {
-        result.agentKey = parsed.agentKey || parsed.AGENT_KEY || parsed.agent_key || '';
-      }
-      if (parsed.macrodroidWebhookUrl || parsed.MACRODROID_URL || parsed.webhookUrl || parsed.webhook) {
-        result.macrodroidWebhookUrl = parsed.macrodroidWebhookUrl || parsed.MACRODROID_URL || parsed.webhookUrl || parsed.webhook || '';
-      }
-      if (parsed.remoteDesktopUrl || parsed.REMOTE_DESKTOP_URL || parsed.chromeRdpUrl) {
-        result.remoteDesktopUrl = parsed.remoteDesktopUrl || parsed.REMOTE_DESKTOP_URL || parsed.chromeRdpUrl || '';
-      }
-      if (parsed.antigravityUrl || parsed.ANTIGRAVITY_URL || parsed.antigravity) {
-        result.antigravityUrl = parsed.antigravityUrl || parsed.ANTIGRAVITY_URL || parsed.antigravity || '';
-      }
+      if (parsed.relayUrl) result.relayUrl = parsed.relayUrl;
+      if (parsed.roomId) result.roomId = parsed.roomId;
+      if (parsed.token) result.token = parsed.token;
+      if (parsed.agentUrl) result.agentUrl = parsed.agentUrl;
+      if (parsed.agentKey) result.agentKey = parsed.agentKey;
+      if (parsed.macrodroidWebhookUrl) result.macrodroidWebhookUrl = parsed.macrodroidWebhookUrl;
+      if (parsed.remoteDesktopUrl) result.remoteDesktopUrl = parsed.remoteDesktopUrl;
+      if (parsed.antigravityUrl) result.antigravityUrl = parsed.antigravityUrl;
       return result;
-    } catch (e) {
-      // Fall through to regex text parser
-    }
+    } catch (e) {}
   }
-
-  // 2. Parse as Markdown / Text / ENV file using regex
-  const cleanStr = (val) => val ? val.replace(/[`"']/g, '').trim() : '';
-
-  // Agent URL (e.g. https://pcagent.yourdomain.com)
-  const agentUrlMatch = rawText.match(/(?:Agent\s*URL|AGENT_URL|PC_AGENT_URL|Agent\s*Endpoint)[\s*:=]+[`"']?(https?:\/\/[^\s`"'\)]+)/i);
-  if (agentUrlMatch) result.agentUrl = cleanStr(agentUrlMatch[1]);
-
-  // Agent Key (e.g. 40-char token)
-  const agentKeyMatch = rawText.match(/(?:Agent\s*(?:Secret\s*)?Key|AGENT_KEY|AGENT_SECRET_KEY|SECRET_KEY|Token)[\s*:=]+[`"']?([a-zA-Z0-9_-]{20,80})/i);
-  if (agentKeyMatch) result.agentKey = cleanStr(agentKeyMatch[1]);
-
-  // MacroDroid Webhook (e.g. https://trigger.macrodroid.com/...)
-  const macrodroidMatch = rawText.match(/(?:MacroDroid(?:\s*WOL)?(?:\s*Webhook)?|WOL|Wake|Webhook|Power[-_\s]*ON)[\s*:=]+[`"']?(https?:\/\/[^\s`"'\)]+)/i);
-  if (macrodroidMatch) result.macrodroidWebhookUrl = cleanStr(macrodroidMatch[1]);
-
-  // Chrome Remote Desktop URL
-  const remoteDesktopMatch = rawText.match(/(?:Chrome\s*Remote(?:\s*Desktop)?(?:\s*URL)?|Remote\s*Desktop|CHROME_RDP)[\s*:=]+[`"']?(https?:\/\/[^\s`"'\)]+)/i);
-  if (remoteDesktopMatch) result.remoteDesktopUrl = cleanStr(remoteDesktopMatch[1]);
-
-  // Antigravity URL
-  const antigravityMatch = rawText.match(/(?:Antigravity(?:\s*URL)?)[\s*:=]+[`"']?(https?:\/\/[^\s`"'\)]+)/i);
-  if (antigravityMatch) result.antigravityUrl = cleanStr(antigravityMatch[1]);
-
-  const extractedCount = Object.keys(result).length;
-  if (extractedCount === 0) {
-    throw new Error('No recognized configuration credentials found in this file. Please check file format.');
-  }
-
   return result;
 }
 
 // Export Settings File Helper
 export function exportSettingsFile(settings) {
   const exportData = {
+    relayUrl: settings.relayUrl || 'https://nexus.hajimammad.com',
+    roomId: settings.roomId || '',
+    token: settings.token || '',
+    pairCode: settings.pairCode || '',
+    targetMac: settings.targetMac || '',
+    targetIp: settings.targetIp || '',
     agentUrl: settings.agentUrl || '',
     agentKey: settings.agentKey || '',
-    macrodroidWebhookUrl: settings.macrodroidWebhookUrl || '',
     remoteDesktopUrl: settings.remoteDesktopUrl || 'https://remotedesktop.google.com/access',
     antigravityUrl: settings.antigravityUrl || 'https://antigravity.google.com',
     exportedAt: new Date().toISOString()
@@ -119,158 +325,4 @@ export function exportSettingsFile(settings) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-}
-
-// Trigger MacroDroid Webhook
-export async function triggerMacroDroid(webhookUrl, agentUrl = null, agentKey = null) {
-  if (!webhookUrl || !webhookUrl.trim()) {
-    throw new Error('MacroDroid Webhook URL is not configured. Please open Settings to configure it.');
-  }
-
-  const cleanUrl = webhookUrl.trim();
-
-  // Try direct fetch first
-  try {
-    await fetch(cleanUrl, {
-      method: 'GET',
-      mode: 'no-cors',
-      cache: 'no-cache'
-    });
-    return { success: true, message: 'MacroDroid Power-ON signal dispatched successfully!' };
-  } catch (err) {
-    console.warn('Direct fetch failed, attempting relay via PC Agent...', err);
-  }
-
-  // If direct failed, try authenticated agent relay
-  if (agentUrl) {
-    try {
-      const headers = { 'Content-Type': 'application/json' };
-      if (agentKey) {
-        headers['Authorization'] = `Bearer ${agentKey}`;
-      }
-
-      const res = await fetch(`${agentUrl.replace(/\/$/, '')}/api/trigger-webhook`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ url: cleanUrl, method: 'GET' })
-      });
-      const data = await res.json();
-      if (data.success) {
-        return { success: true, message: 'MacroDroid signal sent via Authenticated Agent Relay!' };
-      }
-    } catch (relayErr) {
-      console.warn('Agent relay failed:', relayErr);
-    }
-  }
-
-  // Fallback image beacon
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve({ success: true, message: 'MacroDroid signal sent via Webhook Beacon!' });
-    img.onerror = () => resolve({ success: true, message: 'MacroDroid signal dispatched!' });
-    img.src = `${cleanUrl}${cleanUrl.includes('?') ? '&' : '?'}_t=${Date.now()}`;
-  });
-}
-
-// Check PC Agent Status
-export async function fetchAgentStatus(agentUrl, agentKey) {
-  if (!agentUrl) return { online: false, error: 'No agent URL configured' };
-  
-  const baseUrl = agentUrl.replace(/\/$/, '');
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 4500);
-
-  try {
-    const headers = { 'Content-Type': 'application/json' };
-    if (agentKey) {
-      headers['Authorization'] = `Bearer ${agentKey}`;
-    }
-
-    const res = await fetch(`${baseUrl}/api/status`, {
-      method: 'GET',
-      headers,
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      return { online: false, error: `HTTP ${res.status}: ${res.statusText}` };
-    }
-
-    const data = await res.json();
-    if (data.success) {
-      return { online: true, ...data.data };
-    }
-    return { online: false, error: data.error || 'Agent returned error' };
-  } catch (err) {
-    clearTimeout(timeoutId);
-    return { online: false, error: err.name === 'AbortError' ? 'Connection timed out' : 'Agent offline / standby' };
-  }
-}
-
-// Execute Power Action on PC Agent
-export async function executePowerAction(action, agentUrl, agentKey, options = {}) {
-  if (!agentUrl) throw new Error('Agent URL is required');
-  const baseUrl = agentUrl.replace(/\/$/, '');
-
-  const validActions = ['sleep', 'restart', 'shutdown', 'abort', 'lock'];
-  if (!validActions.includes(action)) {
-    throw new Error(`Invalid action: ${action}`);
-  }
-
-  const headers = { 'Content-Type': 'application/json' };
-  if (agentKey) {
-    headers['Authorization'] = `Bearer ${agentKey}`;
-  }
-
-  const res = await fetch(`${baseUrl}/api/power/${action}`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(options)
-  });
-
-  const data = await res.json();
-  if (!res.ok || !data.success) {
-    throw new Error(data.error || `Failed to execute ${action}`);
-  }
-  return data;
-}
-
-// Fetch Windows Session Status
-export async function fetchSessionStatus(agentUrl, agentKey) {
-  if (!agentUrl) return null;
-  const baseUrl = agentUrl.replace(/\/$/, '');
-  const headers = {};
-  if (agentKey) headers['Authorization'] = `Bearer ${agentKey}`;
-
-  try {
-    const res = await fetch(`${baseUrl}/api/session/status`, { headers });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
-
-// Execute Remote Terminal Command
-export async function executeTerminalCommand(agentUrl, agentKey, command, cwd = null) {
-  if (!agentUrl) throw new Error('PC Agent URL is not configured.');
-  if (!command || !command.trim()) throw new Error('Command cannot be empty.');
-
-  const baseUrl = agentUrl.replace(/\/$/, '');
-  const headers = { 'Content-Type': 'application/json' };
-  if (agentKey) headers['Authorization'] = `Bearer ${agentKey}`;
-
-  const res = await fetch(`${baseUrl}/api/terminal/exec`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ command, cwd })
-  });
-
-  const data = await res.json();
-  if (res.status === 401) {
-    throw new Error('Unauthorized: Invalid Agent Secret Key.');
-  }
-  return data;
 }
