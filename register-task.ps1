@@ -37,9 +37,13 @@ try {
 
     # 4. Configure Windows Firewall Inbound Rules
     Write-Host "Configuring Windows Firewall rules..." -ForegroundColor Cyan
-    New-NetFirewallRule -Name "NexusAgentPort" -DisplayName "Nexus PC Agent (Port 48880)" -Direction Inbound -Protocol TCP -LocalPort 48880 -Action Allow -ErrorAction SilentlyContinue | Out-Null
-    New-NetFirewallRule -Name "NexusOpenSSH" -DisplayName "OpenSSH Server (Port 22)" -Direction Inbound -Protocol TCP -LocalPort 22 -Action Allow -ErrorAction SilentlyContinue | Out-Null
-    Write-Host "✓ Firewall ports 48880 and 22 allowed" -ForegroundColor Green
+    if (-not (Get-NetFirewallRule -Name "NexusAgentPort" -ErrorAction SilentlyContinue)) {
+        New-NetFirewallRule -Name "NexusAgentPort" -DisplayName "Nexus PC Agent (Port 48880)" -Direction Inbound -Protocol TCP -LocalPort 48880 -Action Allow -ErrorAction SilentlyContinue | Out-Null
+    }
+    if (-not (Get-NetFirewallRule -Name "NexusOpenSSH" -ErrorAction SilentlyContinue)) {
+        New-NetFirewallRule -Name "NexusOpenSSH" -DisplayName "OpenSSH Server (Port 22)" -Direction Inbound -Protocol TCP -LocalPort 22 -Action Allow -ErrorAction SilentlyContinue | Out-Null
+    }
+    Write-Host "✓ Firewall ports 48880 and 22 verified" -ForegroundColor Green
 
     # 5. Create dedicated unlock.cmd helper in agent directory
     $agentDir = Join-Path $PSScriptRoot "agent"

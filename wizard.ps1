@@ -217,12 +217,16 @@ $BtnNext.Add_Click({
             # Step 2: Firewall
             if ($OptFirewall.IsChecked) {
                 $ProgressStatus.Text = "Configuring Windows Firewall..."
-                $ProgressDetail.Text = "Opening inbound ports 48880 and 22..."
+                $ProgressDetail.Text = "Verifying inbound ports 48880 and 22..."
                 $InstallProgress.Value = 60
                 [System.Windows.Forms.Application]::DoEvents()
 
-                New-NetFirewallRule -Name "NexusAgentPort" -DisplayName "Nexus PC Agent (Port 48880)" -Direction Inbound -Protocol TCP -LocalPort 48880 -Action Allow -ErrorAction SilentlyContinue | Out-Null
-                New-NetFirewallRule -Name "NexusOpenSSH" -DisplayName "OpenSSH Server (Port 22)" -Direction Inbound -Protocol TCP -LocalPort 22 -Action Allow -ErrorAction SilentlyContinue | Out-Null
+                if (-not (Get-NetFirewallRule -Name "NexusAgentPort" -ErrorAction SilentlyContinue)) {
+                    New-NetFirewallRule -Name "NexusAgentPort" -DisplayName "Nexus PC Agent (Port 48880)" -Direction Inbound -Protocol TCP -LocalPort 48880 -Action Allow -ErrorAction SilentlyContinue | Out-Null
+                }
+                if (-not (Get-NetFirewallRule -Name "NexusOpenSSH" -ErrorAction SilentlyContinue)) {
+                    New-NetFirewallRule -Name "NexusOpenSSH" -DisplayName "OpenSSH Server (Port 22)" -Direction Inbound -Protocol TCP -LocalPort 22 -Action Allow -ErrorAction SilentlyContinue | Out-Null
+                }
             }
 
             # Step 3: Register Service
