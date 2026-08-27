@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
+using System.Security.Principal;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -9,18 +10,32 @@ using System.Windows.Media;
 
 namespace Nexus.Installer
 {
+    public class CustomWebClient : WebClient
+    {
+        public int Timeout { get; set; }
+        public CustomWebClient(int timeout = 3000) { Timeout = timeout; }
+        protected override WebRequest GetWebRequest(Uri uri)
+        {
+            var w = base.GetWebRequest(uri);
+            if (w != null) w.Timeout = Timeout;
+            return w;
+        }
+    }
+
     public class MainWindow : Window
     {
         private int currentStep = 1;
         private string pairCodeResult = "163860";
-        private string localIpResult = "192.168.100.50";
-        private string dashboardUrl = "https://nexus.hajimammad.com";
+        private string localIpResult = "127.0.0.1";
+        private bool isInstalled = false;
 
         // UI Pages
-        private StackPanel page1;
-        private StackPanel page2;
-        private StackPanel page3;
-        private StackPanel page4;
+        private StackPanel pageMaintenance;
+        private StackPanel page1Welcome;
+        private StackPanel page2Options;
+        private StackPanel page3Progress;
+        private StackPanel page4Finish;
+        private StackPanel page5UninstallSuccess;
 
         // Navigation
         private Button btnBack;
@@ -42,11 +57,15 @@ namespace Nexus.Installer
         private TextBlock ipDisplay;
         private Button btnCopyPin;
 
+        // Maintenance Controls
+        private TextBlock txtExistingPin;
+        private TextBlock txtExistingPath;
+
         public MainWindow()
         {
             Title = "Nexus PC Command Center Setup";
-            Width = 620;
-            Height = 520;
+            Width = 640;
+            Height = 540;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.NoResize;
             Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#0c101c"));
@@ -54,32 +73,51 @@ namespace Nexus.Installer
             FontFamily = new FontFamily("Segoe UI");
 
             BuildUI();
-            CheckExistingInstallation();
+            DetectInstallation();
         }
 
-        private void CheckExistingInstallation()
+        private void DetectInstallation()
         {
-            try
+            string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            string targetDir = Path.Combine(programData, "NexusAgent", "agent");
+            string serverJs = Path.Combine(targetDir, "server.js");
+            string pairingJson = Path.Combine(targetDir, "pairing.json");
+
+            if (File.Exists(serverJs) || Directory.Exists(targetDir))
             {
-                using (var client = new WebClient())
+                isInstalled = true;
+                if (File.Exists(pairingJson))
                 {
-                    var json = client.DownloadString("http://localhost:48880/api/pairing");
-                    if (json.Contains("\"pairCode\""))
+                    try
                     {
-                        var pCode = ExtractJsonField(json, "pairCode");
-                        var ip = ExtractJsonField(json, "localIp");
-                        var dash = ExtractJsonField(json, "dashboardUrl");
+                        string json = File.ReadAllText(pairingJson);
+                        string p = ExtractJsonField(json, "pairCode");
+                        if (!string.IsNullOrEmpty(p)) pairCodeResult = p;
+                    }
+                    catch { }
+                }
 
-                        if (!string.IsNullOrEmpty(pCode)) pairCodeResult = pCode;
+                // Also try local API
+                try
+                {
+                    using (var client = new CustomWebClient(1500))
+                    {
+                        client.Timeout = 1000;
+                        var json = client.DownloadString("http://localhost:48880/api/pairing");
+                        string p = ExtractJsonField(json, "pairCode");
+                        string ip = ExtractJsonField(json, "localIp");
+                        if (!string.IsNullOrEmpty(p)) pairCodeResult = p;
                         if (!string.IsNullOrEmpty(ip)) localIpResult = ip;
-                        if (!string.IsNullOrEmpty(dash)) dashboardUrl = dash;
-
-                        // If already running, show finish / status page directly
-                        ShowFinishPage();
                     }
                 }
+                catch { }
+
+                ShowMaintenancePage();
             }
-            catch { }
+            else
+            {
+                ShowWelcomePage();
+            }
         }
 
         private void BuildUI()
@@ -101,14 +139,14 @@ namespace Nexus.Installer
             var headerTextStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             headerTextStack.Children.Add(new TextBlock
             {
-                Text = "Nexus PC Setup Wizard",
+                Text = "Nexus PC Setup & Maintenance Wizard",
                 FontSize = 16,
                 FontWeight = FontWeights.Bold,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#38bdf8"))
             });
             headerTextStack.Children.Add(new TextBlock
             {
-                Text = "Universal Remote Power, Security & Telemetry Setup",
+                Text = "Universal Remote Power, Security & Telemetry Companion",
                 FontSize = 11,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#94a3b8")),
                 Margin = new Thickness(0, 2, 0, 0)
@@ -136,26 +174,114 @@ namespace Nexus.Installer
             mainGrid.Children.Add(headerBorder);
 
             // 2. BODY CONTENT
-            var bodyGrid = new Grid { Margin = new Thickness(24, 18, 24, 14) };
+            var bodyGrid = new Grid { Margin = new Thickness(24, 16, 24, 12) };
 
-            // PAGE 1: WELCOME
-            page1 = new StackPanel { Visibility = Visibility.Visible };
-            page1.Children.Add(new TextBlock
+            // ==========================================
+            // PAGE: MAINTENANCE (Existing Installation)
+            // ==========================================
+            pageMaintenance = new StackPanel { Visibility = Visibility.Collapsed };
+            pageMaintenance.Children.Add(new TextBlock
+            {
+                Text = "Nexus PC Agent Already Installed",
+                FontSize = 18,
+                FontWeight = FontWeights.Bold,
+                Foreground = Brushes.White,
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+            pageMaintenance.Children.Add(new TextBlock
+            {
+                Text = "An active installation was detected on this PC. Select an action below:",
+                FontSize = 12,
+                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#cbd5e1")),
+                Margin = new Thickness(0, 0, 0, 12)
+            });
+
+            // Info Card
+            var infoBox = new Border
+            {
+                Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#131c31")),
+                BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1e293b")),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(14),
+                Margin = new Thickness(0, 0, 0, 14)
+            };
+            var infoStack = new StackPanel();
+            txtExistingPin = new TextBlock
+            {
+                Text = "🔑 Current Pairing PIN: " + pairCodeResult,
+                FontWeight = FontWeights.Bold,
+                FontSize = 13,
+                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#38bdf8"))
+            };
+            txtExistingPath = new TextBlock
+            {
+                Text = "📁 Location: C:\\ProgramData\\NexusAgent\\agent (SYSTEM Service)",
+                FontSize = 11,
+                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#94a3b8")),
+                Margin = new Thickness(0, 4, 0, 0)
+            };
+            infoStack.Children.Add(txtExistingPin);
+            infoStack.Children.Add(txtExistingPath);
+            infoBox.Child = infoStack;
+            pageMaintenance.Children.Add(infoBox);
+
+            // Action Buttons
+            var btnReinstall = CreateActionCard("🔄 Update / Reinstall Agent", "Upgrades code and session engine to latest version while preserving your PIN.", "#0284c7");
+            btnReinstall.Click += async (s, e) =>
+            {
+                ShowProgressPage("Updating Nexus PC Agent...", "Replacing files and restarting background service...");
+                await PerformInstallationAsync();
+            };
+            pageMaintenance.Children.Add(btnReinstall);
+
+            var btnResetPin = CreateActionCard("🔑 Change / Reset 6-Digit PIN", "Generates a brand new random pairing PIN for phone linking.", "#0d9488");
+            btnResetPin.Click += async (s, e) =>
+            {
+                ShowProgressPage("Resetting Pairing PIN...", "Generating a fresh 6-digit code for this machine...");
+                await PerformResetPinAsync();
+            };
+            pageMaintenance.Children.Add(btnResetPin);
+
+            var btnUninstall = CreateActionCard("🗑️ Completely Uninstall Agent", "Removes all background services, firewall rules, and files from this PC.", "#dc2626");
+            btnUninstall.Click += async (s, e) =>
+            {
+                var res = MessageBox.Show(
+                    "Are you sure you want to completely uninstall Nexus PC Agent from this computer?",
+                    "Confirm Uninstallation",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning
+                );
+                if (res == MessageBoxResult.Yes)
+                {
+                    ShowProgressPage("Uninstalling Agent...", "Removing Task Scheduler service, firewall rules, and files...");
+                    await PerformUninstallAsync();
+                }
+            };
+            pageMaintenance.Children.Add(btnUninstall);
+
+            bodyGrid.Children.Add(pageMaintenance);
+
+            // ==========================================
+            // PAGE 1: WELCOME (Fresh Install)
+            // ==========================================
+            page1Welcome = new StackPanel { Visibility = Visibility.Collapsed };
+            page1Welcome.Children.Add(new TextBlock
             {
                 Text = "Welcome to Nexus PC Command Center",
                 FontSize = 18,
                 FontWeight = FontWeights.Bold,
                 Foreground = Brushes.White,
-                Margin = new Thickness(0, 0, 0, 8)
+                Margin = new Thickness(0, 0, 0, 6)
             });
-            page1.Children.Add(new TextBlock
+            page1Welcome.Children.Add(new TextBlock
             {
                 Text = "This setup wizard will configure your PC for remote power management, Wake-on-LAN, and secure lock screen bypass.",
                 FontSize = 12,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#cbd5e1")),
                 TextWrapping = TextWrapping.Wrap,
                 LineHeight = 18,
-                Margin = new Thickness(0, 0, 0, 16)
+                Margin = new Thickness(0, 0, 0, 14)
             });
 
             var p1Box = new Border
@@ -181,33 +307,35 @@ namespace Nexus.Installer
             p1BoxStack.Children.Add(CreateBulletText("• 24/7 Background Boot Service (Runs automatically as SYSTEM)"));
             p1BoxStack.Children.Add(CreateBulletText("• Outbound WebSocket Cloud Relay connection"));
             p1Box.Child = p1BoxStack;
-            page1.Children.Add(p1Box);
+            page1Welcome.Children.Add(p1Box);
 
-            page1.Children.Add(new TextBlock
+            page1Welcome.Children.Add(new TextBlock
             {
                 Text = "Click 'Next' to customize options or proceed with installation.",
                 FontSize = 11,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#64748b")),
                 Margin = new Thickness(0, 4, 0, 0)
             });
-            bodyGrid.Children.Add(page1);
+            bodyGrid.Children.Add(page1Welcome);
 
+            // ==========================================
             // PAGE 2: OPTIONS
-            page2 = new StackPanel { Visibility = Visibility.Collapsed };
-            page2.Children.Add(new TextBlock
+            // ==========================================
+            page2Options = new StackPanel { Visibility = Visibility.Collapsed };
+            page2Options.Children.Add(new TextBlock
             {
                 Text = "Installation Options",
                 FontSize = 18,
                 FontWeight = FontWeights.Bold,
                 Foreground = Brushes.White,
-                Margin = new Thickness(0, 0, 0, 8)
+                Margin = new Thickness(0, 0, 0, 6)
             });
-            page2.Children.Add(new TextBlock
+            page2Options.Children.Add(new TextBlock
             {
                 Text = "Select the components you want to enable on this machine:",
                 FontSize = 12,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#94a3b8")),
-                Margin = new Thickness(0, 0, 0, 16)
+                Margin = new Thickness(0, 0, 0, 14)
             });
 
             var p2Box = new Border
@@ -236,14 +364,16 @@ namespace Nexus.Installer
             p2Stack.Children.Add(optService);
             p2Stack.Children.Add(sub3);
             p2Box.Child = p2Stack;
-            page2.Children.Add(p2Box);
-            bodyGrid.Children.Add(page2);
+            page2Options.Children.Add(p2Box);
+            bodyGrid.Children.Add(page2Options);
 
+            // ==========================================
             // PAGE 3: PROGRESS
-            page3 = new StackPanel { Visibility = Visibility.Collapsed, VerticalAlignment = VerticalAlignment.Center };
-            page3.Children.Add(new TextBlock
+            // ==========================================
+            page3Progress = new StackPanel { Visibility = Visibility.Collapsed, VerticalAlignment = VerticalAlignment.Center };
+            page3Progress.Children.Add(new TextBlock
             {
-                Text = "Installing Components...",
+                Text = "Applying Changes...",
                 FontSize = 18,
                 FontWeight = FontWeights.Bold,
                 Foreground = Brushes.White,
@@ -261,7 +391,7 @@ namespace Nexus.Installer
                 Height = 10,
                 Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1e293b")),
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#0284c7")),
-                Value = 10,
+                Value = 15,
                 Maximum = 100,
                 Margin = new Thickness(0, 0, 0, 12)
             };
@@ -271,14 +401,16 @@ namespace Nexus.Installer
                 FontSize = 11,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#64748b"))
             };
-            page3.Children.Add(progressStatus);
-            page3.Children.Add(installProgress);
-            page3.Children.Add(progressDetail);
-            bodyGrid.Children.Add(page3);
+            page3Progress.Children.Add(progressStatus);
+            page3Progress.Children.Add(installProgress);
+            page3Progress.Children.Add(progressDetail);
+            bodyGrid.Children.Add(page3Progress);
 
+            // ==========================================
             // PAGE 4: FINISH & PIN DISPLAY
-            page4 = new StackPanel { Visibility = Visibility.Collapsed };
-            page4.Children.Add(new TextBlock
+            // ==========================================
+            page4Finish = new StackPanel { Visibility = Visibility.Collapsed };
+            page4Finish.Children.Add(new TextBlock
             {
                 Text = "🎉 Nexus PC Agent is Active!",
                 FontSize = 20,
@@ -286,7 +418,7 @@ namespace Nexus.Installer
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#4ade80")),
                 Margin = new Thickness(0, 0, 0, 4)
             });
-            page4.Children.Add(new TextBlock
+            page4Finish.Children.Add(new TextBlock
             {
                 Text = "Your PC companion service is running in the background and ready to pair.",
                 FontSize = 12,
@@ -347,12 +479,37 @@ namespace Nexus.Installer
             };
             pinStack.Children.Add(ipDisplay);
             pinBox.Child = pinStack;
-            page4.Children.Add(pinBox);
+            page4Finish.Children.Add(pinBox);
 
             var btnOpenDash = CreateButton("🌐 Open Web Dashboard (Auto-Paired)", "#0284c7", "#080c16", 40);
             btnOpenDash.Click += (s, e) => Process.Start(new ProcessStartInfo(string.Format("https://nexus.hajimammad.com/#pair={0}", pairCodeResult)) { UseShellExecute = true });
-            page4.Children.Add(btnOpenDash);
-            bodyGrid.Children.Add(page4);
+            page4Finish.Children.Add(btnOpenDash);
+            bodyGrid.Children.Add(page4Finish);
+
+            // ==========================================
+            // PAGE 5: UNINSTALL SUCCESS
+            // ==========================================
+            page5UninstallSuccess = new StackPanel { Visibility = Visibility.Collapsed, VerticalAlignment = VerticalAlignment.Center };
+            page5UninstallSuccess.Children.Add(new TextBlock
+            {
+                Text = "🗑️ Uninstalled Successfully",
+                FontSize = 20,
+                FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#ef4444")),
+                Margin = new Thickness(0, 0, 0, 6)
+            });
+            page5UninstallSuccess.Children.Add(new TextBlock
+            {
+                Text = "Nexus PC Agent has been completely removed from this computer.\nAll background services, scheduled tasks, firewall rules, and files have been cleaned.",
+                FontSize = 12,
+                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#cbd5e1")),
+                LineHeight = 18,
+                Margin = new Thickness(0, 0, 0, 16)
+            });
+            var btnDoneUninstall = CreateButton("Close Wizard", "#334155", "#f8fafc", 38, 140);
+            btnDoneUninstall.Click += (s, e) => Close();
+            page5UninstallSuccess.Children.Add(btnDoneUninstall);
+            bodyGrid.Children.Add(page5UninstallSuccess);
 
             Grid.SetRow(bodyGrid, 1);
             mainGrid.Children.Add(bodyGrid);
@@ -368,7 +525,7 @@ namespace Nexus.Installer
             var footerGrid = new Grid();
             footerGrid.Children.Add(new TextBlock
             {
-                Text = "Nexus v3.3.0 Native",
+                Text = "Nexus v3.7.6 Native",
                 FontSize = 11,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#475569")),
                 VerticalAlignment = VerticalAlignment.Center
@@ -399,13 +556,43 @@ namespace Nexus.Installer
             Content = mainGrid;
         }
 
+        private void ShowMaintenancePage()
+        {
+            HideAllPages();
+            pageMaintenance.Visibility = Visibility.Visible;
+            btnBack.Visibility = Visibility.Collapsed;
+            btnNext.Visibility = Visibility.Collapsed;
+            btnFinish.Visibility = Visibility.Collapsed;
+            txtExistingPin.Text = "🔑 Current Pairing PIN: " + pairCodeResult;
+        }
+
+        private void ShowWelcomePage()
+        {
+            HideAllPages();
+            currentStep = 1;
+            page1Welcome.Visibility = Visibility.Visible;
+            btnBack.Visibility = Visibility.Collapsed;
+            btnNext.Visibility = Visibility.Visible;
+            btnNext.Content = "Next >";
+            btnFinish.Visibility = Visibility.Collapsed;
+        }
+
+        private void ShowProgressPage(string status, string detail)
+        {
+            HideAllPages();
+            page3Progress.Visibility = Visibility.Visible;
+            progressStatus.Text = status;
+            progressDetail.Text = detail;
+            installProgress.Value = 20;
+            btnBack.Visibility = Visibility.Collapsed;
+            btnNext.Visibility = Visibility.Collapsed;
+            btnFinish.Visibility = Visibility.Collapsed;
+        }
+
         private void ShowFinishPage()
         {
-            currentStep = 4;
-            page1.Visibility = Visibility.Collapsed;
-            page2.Visibility = Visibility.Collapsed;
-            page3.Visibility = Visibility.Collapsed;
-            page4.Visibility = Visibility.Visible;
+            HideAllPages();
+            page4Finish.Visibility = Visibility.Visible;
             btnBack.Visibility = Visibility.Collapsed;
             btnNext.Visibility = Visibility.Collapsed;
             btnFinish.Visibility = Visibility.Visible;
@@ -418,6 +605,58 @@ namespace Nexus.Installer
                 Clipboard.SetText(pairCodeResult);
             }
             catch { }
+        }
+
+        private void ShowUninstallSuccessPage()
+        {
+            HideAllPages();
+            page5UninstallSuccess.Visibility = Visibility.Visible;
+            btnBack.Visibility = Visibility.Collapsed;
+            btnNext.Visibility = Visibility.Collapsed;
+            btnFinish.Visibility = Visibility.Collapsed;
+        }
+
+        private void HideAllPages()
+        {
+            if (pageMaintenance != null) pageMaintenance.Visibility = Visibility.Collapsed;
+            if (page1Welcome != null) page1Welcome.Visibility = Visibility.Collapsed;
+            if (page2Options != null) page2Options.Visibility = Visibility.Collapsed;
+            if (page3Progress != null) page3Progress.Visibility = Visibility.Collapsed;
+            if (page4Finish != null) page4Finish.Visibility = Visibility.Collapsed;
+            if (page5UninstallSuccess != null) page5UninstallSuccess.Visibility = Visibility.Collapsed;
+        }
+
+        private Button CreateActionCard(string title, string subtitle, string accentColorHex)
+        {
+            var btn = new Button
+            {
+                Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#111827")),
+                BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1f2937")),
+                BorderThickness = new Thickness(1),
+                Margin = new Thickness(0, 0, 0, 8),
+                Padding = new Thickness(14, 10, 14, 10),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch
+            };
+
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock
+            {
+                Text = title,
+                FontSize = 13,
+                FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(accentColorHex))
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = subtitle,
+                FontSize = 11,
+                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#94a3b8")),
+                Margin = new Thickness(0, 2, 0, 0)
+            });
+
+            btn.Content = stack;
+            return btn;
         }
 
         private TextBlock CreateBulletText(string text)
@@ -452,8 +691,8 @@ namespace Nexus.Installer
             if (currentStep == 2)
             {
                 currentStep = 1;
-                page2.Visibility = Visibility.Collapsed;
-                page1.Visibility = Visibility.Visible;
+                page2Options.Visibility = Visibility.Collapsed;
+                page1Welcome.Visibility = Visibility.Visible;
                 btnBack.Visibility = Visibility.Collapsed;
                 btnNext.Content = "Next >";
             }
@@ -464,19 +703,14 @@ namespace Nexus.Installer
             if (currentStep == 1)
             {
                 currentStep = 2;
-                page1.Visibility = Visibility.Collapsed;
-                page2.Visibility = Visibility.Visible;
+                page1Welcome.Visibility = Visibility.Collapsed;
+                page2Options.Visibility = Visibility.Visible;
                 btnBack.Visibility = Visibility.Visible;
                 btnNext.Content = "Install >";
             }
             else if (currentStep == 2)
             {
-                currentStep = 3;
-                page2.Visibility = Visibility.Collapsed;
-                page3.Visibility = Visibility.Visible;
-                btnBack.Visibility = Visibility.Collapsed;
-                btnNext.Visibility = Visibility.Collapsed;
-
+                ShowProgressPage("Installing Components...", "Please wait while services are configured...");
                 await PerformInstallationAsync();
             }
         }
@@ -487,7 +721,7 @@ namespace Nexus.Installer
             string agentDir = Path.Combine(appDir, "agent");
 
             // Step 1: OpenSSH
-            if (optOpenSSH.IsChecked == true)
+            if (optOpenSSH == null || optOpenSSH.IsChecked == true)
             {
                 progressStatus.Text = "Configuring OpenSSH Server...";
                 progressDetail.Text = "Enabling native Windows remote session unlock...";
@@ -505,7 +739,7 @@ namespace Nexus.Installer
             }
 
             // Step 2: Firewall
-            if (optFirewall.IsChecked == true)
+            if (optFirewall == null || optFirewall.IsChecked == true)
             {
                 progressStatus.Text = "Configuring Windows Firewall...";
                 progressDetail.Text = "Opening inbound ports 48880 and 22 for local communication...";
@@ -521,7 +755,7 @@ namespace Nexus.Installer
             }
 
             // Step 3: Register Task Scheduler Service
-            if (optService.IsChecked == true)
+            if (optService == null || optService.IsChecked == true)
             {
                 progressStatus.Text = "Registering 24/7 Background Service...";
                 progressDetail.Text = "Installing files to ProgramData and registering Scheduled Task...";
@@ -532,20 +766,36 @@ namespace Nexus.Installer
                     string targetBaseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "NexusAgent");
                     string targetAgentDir = Path.Combine(targetBaseDir, "agent");
 
+                    // Stop current task cleanly if updating
+                    RunPowerShell("Stop-ScheduledTask -TaskName 'NexusPCAgent' -ErrorAction SilentlyContinue; Stop-Process -Name 'node' -Force -ErrorAction SilentlyContinue;");
+
                     try
                     {
                         if (!Directory.Exists(targetAgentDir)) Directory.CreateDirectory(targetAgentDir);
+
+                        // Backup credentials if present
+                        string envFile = Path.Combine(targetAgentDir, ".env");
+                        string pairFile = Path.Combine(targetAgentDir, "pairing.json");
+                        string envBackup = File.Exists(envFile) ? File.ReadAllText(envFile) : null;
+                        string pairBackup = File.Exists(pairFile) ? File.ReadAllText(pairFile) : null;
+
                         if (Directory.Exists(agentDir))
                         {
                             foreach (string dirPath in Directory.GetDirectories(agentDir, "*", SearchOption.AllDirectories))
                             {
-                                Directory.CreateDirectory(dirPath.Replace(agentDir, targetAgentDir));
+                                if (!dirPath.Contains("node_modules"))
+                                    Directory.CreateDirectory(dirPath.Replace(agentDir, targetAgentDir));
                             }
                             foreach (string newPath in Directory.GetFiles(agentDir, "*.*", SearchOption.AllDirectories))
                             {
-                                File.Copy(newPath, newPath.Replace(agentDir, targetAgentDir), true);
+                                if (!newPath.Contains("node_modules"))
+                                    File.Copy(newPath, newPath.Replace(agentDir, targetAgentDir), true);
                             }
                         }
+
+                        // Restore credentials
+                        if (envBackup != null) File.WriteAllText(envFile, envBackup);
+                        if (pairBackup != null) File.WriteAllText(pairFile, pairBackup);
                     }
                     catch { }
 
@@ -554,7 +804,7 @@ namespace Nexus.Installer
                     string psCmd = string.Format(
                         "$nodeCmd = Get-Command node.exe -ErrorAction SilentlyContinue; " +
                         "$nodePath = if ($nodeCmd) {{ $nodeCmd.Source }} else {{ 'C:\\Program Files\\nodejs\\node.exe' }}; " +
-                        "Stop-Process -Name 'node' -Force -ErrorAction SilentlyContinue; " +
+                        "if (-not (Test-Path $nodePath)) {{ winget install OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements; $nodePath = 'C:\\Program Files\\nodejs\\node.exe'; }} " +
                         "if (Test-Path '{0}') {{ " +
                         "$action = New-ScheduledTaskAction -Execute $nodePath -Argument '\"{0}\"' -WorkingDirectory '{1}'; " +
                         "$trigger = New-ScheduledTaskTrigger -AtStartup; " +
@@ -573,13 +823,14 @@ namespace Nexus.Installer
             progressStatus.Text = "Querying Live 6-Digit Pairing PIN...";
             progressDetail.Text = "Connecting to local companion daemon...";
 
-            for (int i = 0; i < 8; i++)
+            for (int i = 0; i < 10; i++)
             {
                 await Task.Delay(1000);
                 try
                 {
-                    using (var client = new WebClient())
+                    using (var client = new CustomWebClient(1500))
                     {
+                        client.Timeout = 1500;
                         var json = client.DownloadString("http://localhost:48880/api/pairing");
                         if (json.Contains("\"pairCode\""))
                         {
@@ -598,6 +849,83 @@ namespace Nexus.Installer
             }
 
             ShowFinishPage();
+        }
+
+        private async Task PerformResetPinAsync()
+        {
+            installProgress.Value = 40;
+            progressStatus.Text = "Regenerating Pairing PIN...";
+            progressDetail.Text = "Restarting Nexus Agent with fresh credentials...";
+
+            await Task.Run(new Action(() =>
+            {
+                string targetBaseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "NexusAgent", "agent");
+                string pairFile = Path.Combine(targetBaseDir, "pairing.json");
+
+                RunPowerShell("Stop-ScheduledTask -TaskName 'NexusPCAgent' -ErrorAction SilentlyContinue; Stop-Process -Name 'node' -Force -ErrorAction SilentlyContinue;");
+                try
+                {
+                    if (File.Exists(pairFile)) File.Delete(pairFile);
+                }
+                catch { }
+
+                RunPowerShell("Start-ScheduledTask -TaskName 'NexusPCAgent' -ErrorAction SilentlyContinue;");
+            }));
+
+            installProgress.Value = 80;
+            progressStatus.Text = "Fetching New 6-Digit PIN...";
+            progressDetail.Text = "Linking new PIN with Cloud Relay...";
+
+            for (int i = 0; i < 10; i++)
+            {
+                await Task.Delay(1000);
+                try
+                {
+                    using (var client = new CustomWebClient(1500))
+                    {
+                        client.Timeout = 1500;
+                        var json = client.DownloadString("http://localhost:48880/api/pairing");
+                        if (json.Contains("\"pairCode\""))
+                        {
+                            var pCode = ExtractJsonField(json, "pairCode");
+                            var ip = ExtractJsonField(json, "localIp");
+                            if (!string.IsNullOrEmpty(pCode))
+                            {
+                                pairCodeResult = pCode;
+                                if (!string.IsNullOrEmpty(ip)) localIpResult = ip;
+                                break;
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            ShowFinishPage();
+        }
+
+        private async Task PerformUninstallAsync()
+        {
+            installProgress.Value = 30;
+            progressStatus.Text = "Removing Background Services...";
+            progressDetail.Text = "Stopping and unregistering Scheduled Task...";
+
+            await Task.Run(new Action(() =>
+            {
+                RunPowerShell(
+                    "Stop-ScheduledTask -TaskName 'NexusPCAgent' -ErrorAction SilentlyContinue; " +
+                    "Unregister-ScheduledTask -TaskName 'NexusPCAgent' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null; " +
+                    "$procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*NexusAgent*' }; " +
+                    "foreach ($p in $procs) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue; } " +
+                    "Remove-NetFirewallRule -Name 'NexusAgentPort' -ErrorAction SilentlyContinue | Out-Null; " +
+                    "Remove-NetFirewallRule -Name 'NexusOpenSSH' -ErrorAction SilentlyContinue | Out-Null; " +
+                    "$targetBaseDir = Join-Path $env:ProgramData 'NexusAgent'; " +
+                    "if (Test-Path $targetBaseDir) { Remove-Item -Path $targetBaseDir -Recurse -Force -ErrorAction SilentlyContinue; }"
+                );
+            }));
+
+            installProgress.Value = 100;
+            ShowUninstallSuccessPage();
         }
 
         private string ExtractJsonField(string json, string field)
@@ -638,9 +966,32 @@ namespace Nexus.Installer
             catch { }
         }
 
+        private static bool IsAdministrator()
+        {
+            var identity = WindowsIdentity.GetCurrent();
+            var principal = new WindowsPrincipal(identity);
+            return principal.IsInRole(WindowsBuiltInRole.Administrator);
+        }
+
         [STAThread]
         public static void Main()
         {
+            if (!IsAdministrator())
+            {
+                try
+                {
+                    var exePath = Process.GetCurrentProcess().MainModule.FileName;
+                    var startInfo = new ProcessStartInfo(exePath)
+                    {
+                        UseShellExecute = true,
+                        Verb = "runas"
+                    };
+                    Process.Start(startInfo);
+                    return;
+                }
+                catch { }
+            }
+
             var app = new Application();
             app.Run(new MainWindow());
         }

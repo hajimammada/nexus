@@ -9,7 +9,25 @@ os.makedirs(pub_dl, exist_ok=True)
 os.makedirs(dist_dl, exist_ok=True)
 
 pc_zip_pub = os.path.join(pub_dl, "nexus-pc-agent.zip")
-pc_zip_dist = os.path.join(dist_dl, "nexus-pc-agent.zip")
+# Compile Setup.exe from C# source
+print("Compiling native Setup.exe wizard...")
+wpf_dir = r"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\WPF"
+csc_exe = r"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+if os.path.exists(csc_exe) and os.path.exists(os.path.join(root_dir, "installer", "Installer.cs")):
+    import subprocess
+    cmd = [
+        csc_exe,
+        "/target:winexe",
+        f"/out:{os.path.join(root_dir, 'Setup.exe')}",
+        f"/r:{wpf_dir}\\PresentationCore.dll",
+        f"/r:{wpf_dir}\\PresentationFramework.dll",
+        f"/r:{wpf_dir}\\WindowsBase.dll",
+        "/r:System.dll",
+        "/r:System.Core.dll",
+        "/r:System.Xaml.dll",
+        os.path.join(root_dir, "installer", "Installer.cs")
+    ]
+    subprocess.run(cmd, check=True)
 
 print("Packaging nexus-pc-agent.zip from latest source files...")
 with zipfile.ZipFile(pc_zip_pub, "w", zipfile.ZIP_DEFLATED) as z:
