@@ -192,10 +192,23 @@ function executeLock() {
   });
 }
 
+const UNLOCK_SCRIPT_PATH = path.join(__dirname, 'unlock-session.ps1');
+
 function executeUnlock(user = 'aliye') {
-  logAction(`[POWER] Unlocking workstation session for user ${user}...`);
-  exec(`for /f "tokens=3" %i in ('query session ^| findstr /i "${user}"') do tscon %i /dest:console`, (err) => {
-    if (err) exec('tscon 1 /dest:console');
+  logAction(`[POWER] Unlocking workstation console session...`);
+  execFile(POWERSHELL_PATH, [
+    '-NoProfile',
+    '-ExecutionPolicy', 'Bypass',
+    '-File', UNLOCK_SCRIPT_PATH
+  ], (err, stdout, stderr) => {
+    if (err) {
+      logAction(`[POWER] PowerShell unlock error: ${err.message}`);
+      exec('tscon 2 /dest:console', () => {
+        exec('tscon 1 /dest:console');
+      });
+    } else {
+      logAction(`[POWER] Unlock result: ${stdout ? stdout.trim() : 'OK'}`);
+    }
   });
 }
 

@@ -90,10 +90,10 @@ public class NexusFirebaseMessagingService extends FirebaseMessagingService {
             message = success ? "Wake-on-LAN magic packet broadcasted on Wi-Fi" : "Failed to broadcast WOL packet";
             sendLog(success ? "✅ WOL Packet Broadcasted!" : "❌ Failed to send WOL");
         } else if ("UNLOCK".equals(action)) {
-            sendLog("🔑 Sending OpenSSH Unlock to " + currentIp + ":22...");
-            success = SshUnlockManager.triggerUnlock(currentIp, 22);
+            sendLog("🔑 Sending Authenticated Unlock to " + currentIp + ":48880...");
+            success = SshUnlockManager.triggerUnlock(currentIp, 22, agentKey);
             message = success ? "Unlock signal dispatched to PC" : "Could not reach PC unlock endpoint";
-            sendLog(success ? "✅ Unlock Dispatched!" : "❌ Unlock Failed");
+            sendLog(success ? "✅ Unlock Dispatched (HTTP 200)!" : "❌ Unlock Failed");
         } else if ("TERMINAL".equals(action)) {
             try {
                 JSONObject payload = payloadStr != null ? new JSONObject(payloadStr) : new JSONObject();

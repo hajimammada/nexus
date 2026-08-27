@@ -329,7 +329,7 @@ public class RelayService extends Service {
                         success = WolManager.sendWakeOnLan(RelayService.this, currentMac);
                         message = success ? "Wake-on-LAN magic packet broadcasted on Wi-Fi" : "Failed to broadcast WOL packet";
                     } else if ("UNLOCK".equals(action)) {
-                        success = SshUnlockManager.triggerUnlock(currentIp, 22);
+                        success = SshUnlockManager.triggerUnlock(currentIp, 22, agentKey);
                         message = success ? "Unlock signal dispatched to PC" : "Could not reach PC unlock endpoint";
                     } else if ("TERMINAL".equals(action)) {
                         String cmd = payload.optString("command", "");
