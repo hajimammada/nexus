@@ -30,14 +30,25 @@ public class NexusFirebaseMessagingService extends FirebaseMessagingService {
         super.onNewToken(token);
         Log.i(TAG, "New FCM Registration Token: " + token);
         sendLog("🔥 Registered with Google FCM: " + token.substring(0, Math.min(10, token.length())) + "...");
-        subscribeToCurrentTopic();
+        subscribeToCurrentTopic(this);
     }
 
-    public static void subscribeToCurrentTopic() {
+    public static void subscribeToCurrentTopic(Context context) {
         try {
-            FirebaseMessaging.getInstance().subscribeToTopic("nexus_all");
-            FirebaseMessaging.getInstance().subscribeToTopic("nexus_163860");
-            Log.i(TAG, "Subscribed to FCM topic: nexus_163860");
+            if (context == null) return;
+            SharedPreferences prefs = context.getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
+            String pin = prefs.getString("currentPin", "");
+            if (pin == null || pin.isEmpty()) {
+                String roomId = prefs.getString("roomId", "");
+                if (roomId != null && roomId.contains("_")) {
+                    String[] parts = roomId.split("_");
+                    if (parts.length > 1) pin = parts[1];
+                }
+            }
+            if (pin != null && !pin.isEmpty()) {
+                FirebaseMessaging.getInstance().subscribeToTopic("nexus_" + pin);
+                Log.i(TAG, "Subscribed to private FCM topic: nexus_" + pin);
+            }
         } catch (Exception e) {
             Log.w(TAG, "Error subscribing to FCM topic: " + e.getMessage());
         }
@@ -69,14 +80,23 @@ public class NexusFirebaseMessagingService extends FirebaseMessagingService {
 
     private void executeFcmCommand(String action, String subAction, String reqId, String payloadStr) {
         SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
-        String pairCode = prefs.getString("roomId", "163860");
-        if (pairCode.contains("_")) {
-            String[] parts = pairCode.split("_");
-            if (parts.length > 1) pairCode = parts[1];
+        boolean paired = prefs.getBoolean("paired", false);
+        String pairCode = prefs.getString("currentPin", "");
+        if (pairCode.isEmpty()) {
+            String roomId = prefs.getString("roomId", "");
+            if (roomId.contains("_")) {
+                String[] parts = roomId.split("_");
+                if (parts.length > 1) pairCode = parts[1];
+            }
         }
-        String currentIp = prefs.getString("targetIp", "192.168.100.50");
-        String currentMac = prefs.getString("targetMac", "74:56:3C:48:E0:7F");
+        String currentIp = prefs.getString("targetIp", "");
+        String currentMac = prefs.getString("targetMac", "");
         String agentKey = prefs.getString("agentKey", "");
+
+        if (!paired || currentIp.isEmpty()) {
+            sendLog("⚠️ Command ignored: Phone is not paired with any active PC.");
+            return;
+        }
 
         boolean success = false;
         String message = "";

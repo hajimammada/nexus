@@ -93,7 +93,7 @@ public class MainActivity extends AppCompatActivity {
         scrollLogs = findViewById(R.id.scrollLogs);
         btnClearLogs = findViewById(R.id.btnClearLogs);
 
-        NexusFirebaseMessagingService.subscribeToCurrentTopic();
+        NexusFirebaseMessagingService.subscribeToCurrentTopic(this);
         loadSavedState();
 
         android.content.BroadcastReceiver logReceiver = new android.content.BroadcastReceiver() {
@@ -335,14 +335,26 @@ public class MainActivity extends AppCompatActivity {
                         if (resJson.optBoolean("success", false)) {
                             final String roomId = resJson.getString("roomId");
                             final String token = resJson.getString("token");
-                            final String targetMac = resJson.optString("targetMac", "74:56:3C:48:E0:7F");
-                            final String targetIp = resJson.optString("targetIp", "192.168.100.50");
-                            final String hostname = resJson.optString("hostname", "hajimaPC");
-                            final String agentKey = resJson.optString("agentKey", "1b6d4d72aa803604467e56292b1f26ecb297818d");
+                            final String targetMac = resJson.optString("targetMac", "");
+                            final String targetIp = resJson.optString("targetIp", "");
+                            final String hostname = resJson.optString("hostname", "PC");
+                            final String agentKey = resJson.optString("agentKey", "");
 
                             SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
+                            String oldPin = prefs.getString("currentPin", "");
+                            if (oldPin != null && !oldPin.isEmpty()) {
+                                try {
+                                    com.google.firebase.messaging.FirebaseMessaging.getInstance().unsubscribeFromTopic("nexus_" + oldPin);
+                                } catch (Exception ignored) {}
+                            }
+                            try {
+                                com.google.firebase.messaging.FirebaseMessaging.getInstance().subscribeToTopic("nexus_" + pin);
+                                appendLog("📡 Subscribed to private FCM topic: nexus_" + pin);
+                            } catch (Exception ignored) {}
+
                             prefs.edit()
                                     .putBoolean("paired", true)
+                                    .putString("currentPin", pin)
                                     .putString("roomId", roomId)
                                     .putString("token", token)
                                     .putString("targetMac", targetMac)
@@ -364,13 +376,14 @@ public class MainActivity extends AppCompatActivity {
 
                             RelayService.startService(MainActivity.this, roomId, token, targetMac, targetIp, relayUrl);
                         } else {
+                            final String errorMsg = resJson.optString("error", "Invalid or unregistered Pairing PIN.");
                             mainHandler.post(new Runnable() {
                                 @Override
                                 public void run() {
                                     btnConnect.setEnabled(true);
                                     btnConnect.setText("CONNECT & START 24/7 RELAY");
-                                    appendLog("❌ Pairing Error: " + resJson.optString("error", "Pairing failed"));
-                                    Toast.makeText(MainActivity.this, resJson.optString("error", "Pairing failed"), Toast.LENGTH_LONG).show();
+                                    appendLog("❌ Pairing Failed: " + errorMsg);
+                                    Toast.makeText(MainActivity.this, errorMsg, Toast.LENGTH_LONG).show();
                                 }
                             });
                         }
