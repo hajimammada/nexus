@@ -25,7 +25,7 @@ namespace Nexus.Installer
     public class MainWindow : Window
     {
         private int currentStep = 1;
-        private string pairCodeResult = "163860";
+        private string pairCodeResult = "";
         private string localIpResult = "127.0.0.1";
         private bool isInstalled = false;
 
@@ -793,9 +793,19 @@ namespace Nexus.Installer
                             }
                         }
 
-                        // Restore credentials
+                        // Restore credentials or generate fresh random PIN
                         if (envBackup != null) File.WriteAllText(envFile, envBackup);
-                        if (pairBackup != null) File.WriteAllText(pairFile, pairBackup);
+                        if (pairBackup != null)
+                        {
+                            File.WriteAllText(pairFile, pairBackup);
+                        }
+                        else
+                        {
+                            string freshPin = new Random().Next(100000, 999999).ToString();
+                            string freshJson = string.Format("{{\n  \"pairCode\": \"{0}\",\n  \"roomId\": \"room_{0}_pc\",\n  \"token\": \"token_{0}\",\n  \"updatedAt\": \"{1}\"\n}}", freshPin, DateTime.UtcNow.ToString("o"));
+                            File.WriteAllText(pairFile, freshJson);
+                            pairCodeResult = freshPin;
+                        }
                     }
                     catch { }
 

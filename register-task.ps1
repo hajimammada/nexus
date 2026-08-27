@@ -73,9 +73,25 @@ try {
         Copy-Item -Path "$sourceAgentDir\*" -Destination $targetAgentDir -Recurse -Force
     }
 
-    # Restore credentials & pairing PIN so user keeps their same 6-digit PIN
-    if ($envBackup) { Set-Content -Path $savedEnv -Value $envBackup -Encoding UTF8 }
-    if ($pairBackup) { Set-Content -Path $savedPair -Value $pairBackup -Encoding UTF8 }
+    # Restore credentials & pairing PIN so user keeps their same 6-digit PIN or generate fresh random PIN
+    if ($envBackup) { 
+        Set-Content -Path $savedEnv -Value $envBackup -Encoding UTF8 
+    }
+    if ($pairBackup) { 
+        Set-Content -Path $savedPair -Value $pairBackup -Encoding UTF8 
+    } elseif (-not (Test-Path $savedPair)) {
+        $randPin = (Get-Random -Minimum 100000 -Maximum 999999).ToString()
+        $nowIso = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+        $newPairContent = @"
+{
+  "pairCode": "$randPin",
+  "roomId": "room_${randPin}_pc",
+  "token": "token_$randPin",
+  "updatedAt": "$nowIso"
+}
+"@
+        Set-Content -Path $savedPair -Value $newPairContent -Encoding UTF8
+    }
 
     $unlockCmd = Join-Path $targetAgentDir "unlock.cmd"
     $unlockContent = @"
