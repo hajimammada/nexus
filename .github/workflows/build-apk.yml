@@ -33,8 +33,6 @@ jobs:
       - name: Build Android APK
         working-directory: ./android
         run: ./gradlew :app:assembleDebug --stacktrace --no-daemon
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
       - name: Prepare APK Asset
         run: |
