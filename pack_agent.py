@@ -42,6 +42,8 @@ with zipfile.ZipFile(pc_zip_pub, "w", zipfile.ZIP_DEFLATED) as z:
         if "node_modules" in dirs:
             dirs.remove("node_modules")
         for f in files:
+            if f.endswith((".log", ".env", "pairing.json")):
+                continue
             full = os.path.join(root, f)
             rel = os.path.relpath(full, root_dir)
             z.write(full, rel)

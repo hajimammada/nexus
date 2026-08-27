@@ -284,7 +284,7 @@ function savePairing(data) {
 }
 
 const savedPair = loadSavedPairing();
-let activePairCode = savedPair?.pairCode || '163860';
+let activePairCode = savedPair?.pairCode || Math.floor(100000 + Math.random() * 900000).toString();
 let activeRoomId = savedPair?.roomId || `room_${activePairCode}_pc`;
 let activeToken = savedPair?.token || 'token_' + activePairCode;
 let relayWs = null;
@@ -520,6 +520,51 @@ app.get('/api/pairing', (req, res) => {
     mac: net.mac,
     hostname: os.hostname(),
     agentKey: AGENT_KEY
+  });
+});
+
+app.post('/api/pairing/reset', async (req, res) => {
+  const isLocal = req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1';
+  if (!isLocal) {
+    const authHeader = req.headers['authorization'];
+    const customHeader = req.headers['x-agent-key'];
+    const token = (authHeader && authHeader.startsWith('Bearer ')) ? authHeader.slice(7) : customHeader;
+    if (!token || !safeCompare(token, AGENT_KEY)) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+  }
+
+  const newPairCode = Math.floor(100000 + Math.random() * 900000).toString();
+  activePairCode = newPairCode;
+  activeRoomId = `room_${newPairCode}_pc`;
+  activeToken = 'token_' + newPairCode;
+
+  savePairing({
+    pairCode: activePairCode,
+    roomId: activeRoomId,
+    token: activeToken,
+    updatedAt: new Date().toISOString()
+  });
+
+  if (relayWs) {
+    try {
+      relayWs.removeAllListeners();
+      relayWs.terminate();
+    } catch (e) {}
+    relayWs = null;
+  }
+
+  await registerAndConnectRelay();
+  const net = getPrimaryNetworkInfo();
+  res.json({
+    success: true,
+    pairCode: activePairCode,
+    roomId: activeRoomId,
+    token: activeToken,
+    dashboardUrl: `${RELAY_URL}/#pair=${activePairCode}`,
+    localIp: net.ip,
+    mac: net.mac,
+    hostname: os.hostname()
   });
 });
 

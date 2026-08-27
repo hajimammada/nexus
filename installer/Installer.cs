@@ -855,52 +855,72 @@ namespace Nexus.Installer
         {
             installProgress.Value = 40;
             progressStatus.Text = "Regenerating Pairing PIN...";
-            progressDetail.Text = "Restarting Nexus Agent with fresh credentials...";
+            progressDetail.Text = "Requesting new 6-digit code from local companion daemon...";
 
-            await Task.Run(new Action(() =>
+            bool resetOk = false;
+            try
             {
-                string targetBaseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "NexusAgent", "agent");
-                string pairFile = Path.Combine(targetBaseDir, "pairing.json");
-
-                RunPowerShell("Stop-ScheduledTask -TaskName 'NexusPCAgent' -ErrorAction SilentlyContinue; Stop-Process -Name 'node' -Force -ErrorAction SilentlyContinue;");
-                try
+                using (var client = new CustomWebClient(2500))
                 {
-                    if (File.Exists(pairFile)) File.Delete(pairFile);
-                }
-                catch { }
-
-                RunPowerShell("Start-ScheduledTask -TaskName 'NexusPCAgent' -ErrorAction SilentlyContinue;");
-            }));
-
-            installProgress.Value = 80;
-            progressStatus.Text = "Fetching New 6-Digit PIN...";
-            progressDetail.Text = "Linking new PIN with Cloud Relay...";
-
-            for (int i = 0; i < 10; i++)
-            {
-                await Task.Delay(1000);
-                try
-                {
-                    using (var client = new CustomWebClient(1500))
+                    client.Headers[HttpRequestHeader.ContentType] = "application/json";
+                    var res = client.UploadString("http://localhost:48880/api/pairing/reset", "{}");
+                    var pCode = ExtractJsonField(res, "pairCode");
+                    var ip = ExtractJsonField(res, "localIp");
+                    if (!string.IsNullOrEmpty(pCode))
                     {
-                        client.Timeout = 1500;
-                        var json = client.DownloadString("http://localhost:48880/api/pairing");
-                        if (json.Contains("\"pairCode\""))
+                        pairCodeResult = pCode;
+                        if (!string.IsNullOrEmpty(ip)) localIpResult = ip;
+                        resetOk = true;
+                    }
+                }
+            }
+            catch { }
+
+            if (!resetOk)
+            {
+                await Task.Run(new Action(() =>
+                {
+                    string targetBaseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "NexusAgent", "agent");
+                    string pairFile = Path.Combine(targetBaseDir, "pairing.json");
+
+                    RunPowerShell(
+                        "Stop-ScheduledTask -TaskName 'NexusPCAgent' -ErrorAction SilentlyContinue; " +
+                        "Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; " +
+                        (File.Exists(pairFile) ? "Remove-Item -Path '" + pairFile + "' -Force -ErrorAction SilentlyContinue; " : "") +
+                        "Start-ScheduledTask -TaskName 'NexusPCAgent' -ErrorAction SilentlyContinue;"
+                    );
+                }));
+
+                installProgress.Value = 80;
+                progressStatus.Text = "Fetching New 6-Digit PIN...";
+                progressDetail.Text = "Linking new PIN with Cloud Relay...";
+
+                for (int i = 0; i < 10; i++)
+                {
+                    await Task.Delay(1000);
+                    try
+                    {
+                        using (var client = new CustomWebClient(1500))
                         {
-                            var pCode = ExtractJsonField(json, "pairCode");
-                            var ip = ExtractJsonField(json, "localIp");
-                            if (!string.IsNullOrEmpty(pCode))
+                            var json = client.DownloadString("http://localhost:48880/api/pairing");
+                            if (json.Contains("\"pairCode\""))
                             {
-                                pairCodeResult = pCode;
-                                if (!string.IsNullOrEmpty(ip)) localIpResult = ip;
-                                break;
+                                var pCode = ExtractJsonField(json, "pairCode");
+                                var ip = ExtractJsonField(json, "localIp");
+                                if (!string.IsNullOrEmpty(pCode))
+                                {
+                                    pairCodeResult = pCode;
+                                    if (!string.IsNullOrEmpty(ip)) localIpResult = ip;
+                                    break;
+                                }
                             }
                         }
                     }
+                    catch { }
                 }
-                catch { }
             }
 
+            installProgress.Value = 100;
             ShowFinishPage();
         }
 
@@ -914,9 +934,13 @@ namespace Nexus.Installer
             {
                 RunPowerShell(
                     "Stop-ScheduledTask -TaskName 'NexusPCAgent' -ErrorAction SilentlyContinue; " +
+                    "schtasks /Delete /TN 'NexusPCAgent' /F 2>$null; " +
                     "Unregister-ScheduledTask -TaskName 'NexusPCAgent' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null; " +
-                    "$procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*NexusAgent*' }; " +
-                    "foreach ($p in $procs) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue; } " +
+                    "Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; " +
+                    "$userStartup = Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs\\Startup'; " +
+                    "Get-ChildItem $userStartup -Filter '*nexus*' -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue; " +
+                    "$allStartup = Join-Path $env:ProgramData 'Microsoft\\Windows\\Start Menu\\Programs\\Startup'; " +
+                    "Get-ChildItem $allStartup -Filter '*nexus*' -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue; " +
                     "Remove-NetFirewallRule -Name 'NexusAgentPort' -ErrorAction SilentlyContinue | Out-Null; " +
                     "Remove-NetFirewallRule -Name 'NexusOpenSSH' -ErrorAction SilentlyContinue | Out-Null; " +
                     "$targetBaseDir = Join-Path $env:ProgramData 'NexusAgent'; " +

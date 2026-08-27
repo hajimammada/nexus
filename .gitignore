@@ -11,3 +11,5 @@ credentials.md
 trash/
 google-services.json
 *adminsdk*.json
+pairing.json
+*.pairing.json
