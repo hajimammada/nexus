@@ -135,18 +135,10 @@ export async function handleRequest(request, env) {
         }), { headers: corsHeaders });
       }
 
-      // Deterministic Zero-Config Fallback (Always Succeeds for valid 6-digit codes)
-      return new Response(JSON.stringify({
-        success: true,
-        pairCode: code,
-        roomId: `room_${code}_pc`,
-        token: `token_${code}`,
-        targetMac: '74:56:3C:48:E0:7F',
-        targetIp: '192.168.100.50',
-        hostname: 'hajimaPC',
-        agentKey: '1b6d4d72aa803604467e56292b1f26ecb297818d',
-        online: true
-      }), { headers: corsHeaders });
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: `PIN [${code}] not found. Make sure the Nexus PC Agent is installed and running on that computer.` 
+      }), { status: 404, headers: corsHeaders });
     } catch (err) {
       return new Response(JSON.stringify({ success: false, error: err.message }), { status: 400, headers: corsHeaders });
     }
@@ -169,7 +161,7 @@ export async function handleRequest(request, env) {
         lastSeenAgoSeconds: Math.round((Date.now() - (data.lastSeen || 0)) / 1000)
       }), { headers: corsHeaders });
     }
-    return new Response(JSON.stringify({ success: true, online: true, isOnline: true, hostname: 'hajimaPC' }), { headers: corsHeaders });
+    return new Response(JSON.stringify({ success: false, online: false, isOnline: false, error: 'PC not found or unregistered' }), { status: 404, headers: corsHeaders });
   }
 
   // 5. POST /api/command/dispatch (Send command from Dashboard to Android Satellite Gateway via FCM Push + Edge)
@@ -177,7 +169,10 @@ export async function handleRequest(request, env) {
     try {
       const body = await request.json();
       const { pairCode, action, subAction, payload = {}, reqId = Date.now().toString() } = body;
-      const code = (pairCode || '163860').trim();
+      if (!pairCode) {
+        return new Response(JSON.stringify({ success: false, error: 'Pairing PIN is required' }), { status: 400, headers: corsHeaders });
+      }
+      const code = pairCode.trim();
 
       const cmdObj = { type: 'EXECUTE', action, subAction, payload, reqId, timestamp: Date.now() };
 

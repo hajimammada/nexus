@@ -216,16 +216,22 @@ public class RelayService extends Service {
 
     private void pollAndSync() {
         SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
-        String pairCode = prefs.getString("roomId", "163860");
-        if (pairCode.contains("_")) {
-            String[] parts = pairCode.split("_");
-            if (parts.length > 1) pairCode = parts[1];
+        boolean paired = prefs.getBoolean("paired", false);
+        String pairCode = prefs.getString("currentPin", "");
+        if (pairCode.isEmpty()) {
+            String roomId = prefs.getString("roomId", "");
+            if (roomId.contains("_")) {
+                String[] parts = roomId.split("_");
+                if (parts.length > 1) pairCode = parts[1];
+            }
         }
         final String currentCode = pairCode;
-        final String currentIp = prefs.getString("targetIp", "192.168.100.50");
-        final String currentMac = prefs.getString("targetMac", "74:56:3C:48:E0:7F");
+        final String currentIp = prefs.getString("targetIp", "");
+        final String currentMac = prefs.getString("targetMac", "");
         final String agentKey = prefs.getString("agentKey", "");
-        final String hostname = prefs.getString("hostname", "hajimaPC");
+        final String hostname = prefs.getString("hostname", "PC");
+
+        if (!paired || currentIp.isEmpty()) return;
 
         // 1. Fetch live telemetry from PC Agent (if online)
         JSONObject telemetryObj = null;
@@ -310,14 +316,23 @@ public class RelayService extends Service {
                     String reqId = json.optString("reqId", String.valueOf(System.currentTimeMillis()));
 
                     SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
-                    String pairCode = prefs.getString("roomId", "163860");
-                    if (pairCode.contains("_")) {
-                        String[] parts = pairCode.split("_");
-                        if (parts.length > 1) pairCode = parts[1];
+                    boolean paired = prefs.getBoolean("paired", false);
+                    String pairCode = prefs.getString("currentPin", "");
+                    if (pairCode.isEmpty()) {
+                        String roomId = prefs.getString("roomId", "");
+                        if (roomId.contains("_")) {
+                            String[] parts = roomId.split("_");
+                            if (parts.length > 1) pairCode = parts[1];
+                        }
                     }
-                    String currentIp = prefs.getString("targetIp", "192.168.100.50");
-                    String currentMac = prefs.getString("targetMac", "74:56:3C:48:E0:7F");
+                    String currentIp = prefs.getString("targetIp", "");
+                    String currentMac = prefs.getString("targetMac", "");
                     String agentKey = prefs.getString("agentKey", "");
+
+                    if (!paired || currentIp.isEmpty()) {
+                        Log.w(TAG, "Command ignored: Satellite is not paired with a PC.");
+                        return;
+                    }
 
                     boolean success = false;
                     String message = "";

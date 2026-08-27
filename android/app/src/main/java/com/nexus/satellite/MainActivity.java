@@ -143,7 +143,12 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
-                final String mac = prefs.getString("targetMac", "74:56:3C:48:E0:7F");
+                final String mac = prefs.getString("targetMac", "");
+                if (mac == null || mac.isEmpty()) {
+                    appendLog("❌ No PC linked. Please enter a valid 6-digit PIN above first.");
+                    Toast.makeText(MainActivity.this, "No PC Linked", Toast.LENGTH_SHORT).show();
+                    return;
+                }
                 appendLog("⚡ [WOL] Broadcasting Magic Packet to " + mac + "...");
 
                 new Thread(new Runnable() {
@@ -202,10 +207,14 @@ public class MainActivity extends AppCompatActivity {
 
     private void executeLanAction(final String actionName, final String endpoint, final String method, final String jsonBody) {
         SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
-        String ip = prefs.getString("targetIp", "192.168.100.50");
+        String ip = prefs.getString("targetIp", "");
         final String agentKey = prefs.getString("agentKey", "");
 
-        if (ip == null || ip.isEmpty()) ip = "192.168.100.50";
+        if (ip == null || ip.isEmpty()) {
+            appendLog("❌ Cannot execute [" + actionName + "]: Satellite is not linked to any PC. Enter a valid 6-digit PIN above first.");
+            Toast.makeText(MainActivity.this, "Please pair with a PC first", Toast.LENGTH_SHORT).show();
+            return;
+        }
         final String url = "http://" + ip + ":48880" + endpoint;
 
         appendLog("🚀 [" + actionName + "] Sending " + method + " -> " + url + "...");
@@ -285,16 +294,18 @@ public class MainActivity extends AppCompatActivity {
     private void loadSavedState() {
         SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
         boolean paired = prefs.getBoolean("paired", false);
-        String mac = prefs.getString("targetMac", "74:56:3C:48:E0:7F");
-        String ip = prefs.getString("targetIp", "192.168.100.50");
-        String hostname = prefs.getString("hostname", "hajimaPC");
-        String roomId = prefs.getString("roomId", "room_163860_pc");
-        String token = prefs.getString("token", "token_163860");
+        String mac = prefs.getString("targetMac", "");
+        String ip = prefs.getString("targetIp", "");
+        String hostname = prefs.getString("hostname", "PC");
+        String roomId = prefs.getString("roomId", "");
+        String token = prefs.getString("token", "");
 
-        if (paired && roomId != null && !roomId.isEmpty()) {
+        if (paired && roomId != null && !roomId.isEmpty() && !ip.isEmpty()) {
             updateUiPaired(hostname, mac, ip);
             appendLog("✓ Restored session for " + hostname + " (IP: " + ip + ", MAC: " + mac + ")");
             RelayService.startService(this, roomId, token, mac, ip, relayUrl);
+        } else {
+            updateUiUnpaired();
         }
     }
 
@@ -414,8 +425,19 @@ public class MainActivity extends AppCompatActivity {
         dotStatus.setBackgroundColor(Color.parseColor("#10B981"));
 
         cardTargetInfo.setVisibility(View.VISIBLE);
-        tvTargetName.setText("Target: " + hostname);
+        tvTargetName.setText("Target: " + (hostname.isEmpty() ? "PC" : hostname));
         tvTargetIp.setText("LAN IP: " + ip + ":48880");
         tvTargetMac.setText("Target MAC: " + mac);
+    }
+
+    private void updateUiUnpaired() {
+        tvStatus.setText("NOT PAIRED • ENTER 6-DIGIT PIN");
+        tvStatus.setTextColor(Color.parseColor("#94A3B8"));
+        dotStatus.setBackgroundColor(Color.parseColor("#94A3B8"));
+
+        cardTargetInfo.setVisibility(View.GONE);
+        tvTargetName.setText("Target: No PC Linked");
+        tvTargetIp.setText("LAN IP: Not Linked");
+        tvTargetMac.setText("Target MAC: Not Linked");
     }
 }

@@ -82,7 +82,7 @@
                 android:layout_marginBottom="12dp"
                 android:background="#0F1524"
                 android:gravity="center"
-                android:hint="163860"
+                android:hint="000000"
                 android:inputType="number"
                 android:maxLength="6"
                 android:textColor="#38BDF8"
@@ -117,7 +117,7 @@
                 android:id="@+id/tvTargetName"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Target: hajimaPC"
+                android:text="Target: No PC Linked"
                 android:textColor="#FFFFFF"
                 android:textSize="13sp"
                 android:textStyle="bold" />
@@ -127,7 +127,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="LAN IP: 192.168.100.50:48880"
+                android:text="LAN IP: Not Linked"
                 android:textColor="#38BDF8"
                 android:textSize="11sp" />
 
@@ -136,7 +136,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
-                android:text="MAC: 74:56:3C:48:E0:7F"
+                android:text="MAC: Not Linked"
                 android:textColor="#94A3B8"
                 android:textSize="11sp" />
         </LinearLayout>
