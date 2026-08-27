@@ -1,10 +1,10 @@
 {
     "logs": [
         {
-            "outputFile": "com.nexus.satellite.app-mergeDebugResources-29:/values-h320dp-port-v13/values-h320dp-port-v13.xml",
+            "outputFile": "com.nexus.satellite.app-mergeDebugResources-34:/values-h320dp-port-v13/values-h320dp-port-v13.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\aliye\\.gradle\\caches\\transforms-3\\3a347358b13a1901f4709358b2ed9945\\transformed\\material-1.11.0\\res\\values-h320dp-port-v13\\values-h320dp-port-v13.xml",
+                    "source": "C:\\Users\\aliye\\.gradle\\caches\\transforms-3\\b2f1b218418bb15dbab3a2cc12051f63\\transformed\\material-1.11.0\\res\\values-h320dp-port-v13\\values-h320dp-port-v13.xml",
                     "from": {
                         "startLines": "2",
                         "startColumns": "4",

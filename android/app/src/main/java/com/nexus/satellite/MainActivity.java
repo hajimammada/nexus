@@ -90,6 +90,7 @@ public class MainActivity extends AppCompatActivity {
         scrollLogs = findViewById(R.id.scrollLogs);
         btnClearLogs = findViewById(R.id.btnClearLogs);
 
+        NexusFirebaseMessagingService.subscribeToCurrentTopic();
         loadSavedState();
 
         btnClearLogs.setOnClickListener(new View.OnClickListener() {

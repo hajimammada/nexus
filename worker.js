@@ -172,16 +172,28 @@ export async function handleRequest(request, env) {
     return new Response(JSON.stringify({ success: true, online: true, isOnline: true, hostname: 'hajimaPC' }), { headers: corsHeaders });
   }
 
-  // 5. POST /api/command/dispatch (Send command from Dashboard to Android Satellite Gateway / PC)
+  // 5. POST /api/command/dispatch (Send command from Dashboard to Android Satellite Gateway via FCM Push + Edge)
   if (url.pathname === '/api/command/dispatch' && request.method === 'POST') {
     try {
       const body = await request.json();
       const { pairCode, action, subAction, payload = {}, reqId = Date.now().toString() } = body;
-      const code = (pairCode || '').trim();
+      const code = (pairCode || '163860').trim();
 
       const cmdObj = { type: 'EXECUTE', action, subAction, payload, reqId, timestamp: Date.now() };
 
-      // 1. Send via WebSocket if satellite or agent is connected to this isolate
+      // 1. Instant High-Priority Google Firebase Push Notification (FCM v1)
+      const topic = `nexus_${code}`;
+      const fcmData = {
+        action: action || '',
+        subAction: subAction || '',
+        reqId: String(reqId),
+        payload: typeof payload === 'object' ? JSON.stringify(payload) : String(payload)
+      };
+      
+      // Fire FCM push asynchronously
+      sendGoogleFcmPush(topic, fcmData).catch(() => {});
+
+      // 2. Send via WebSocket if satellite or agent is connected to this isolate
       const pair = activePairings.get(code);
       if (pair && pair.roomId && activeRooms.has(pair.roomId)) {
         const room = activeRooms.get(pair.roomId);
@@ -193,11 +205,11 @@ export async function handleRequest(request, env) {
         }
       }
 
-      // 2. Queue into pendingCommands for HTTP retrieval by Android Satellite
+      // 3. Queue into pendingCommands for HTTP retrieval by Android Satellite
       if (!pendingCommands.has(code)) pendingCommands.set(code, []);
       pendingCommands.get(code).push(cmdObj);
 
-      return new Response(JSON.stringify({ success: true, reqId, message: 'Command dispatched to Android Satellite Gateway.' }), { headers: corsHeaders });
+      return new Response(JSON.stringify({ success: true, reqId, message: 'High-priority Google FCM Push dispatched to Android Satellite.' }), { headers: corsHeaders });
     } catch (err) {
       return new Response(JSON.stringify({ success: false, error: err.message }), { status: 400, headers: corsHeaders });
     }
@@ -346,6 +358,96 @@ export async function handleRequest(request, env) {
   return new Response(JSON.stringify({ status: 'Nexus Cloud Relay Online' }), { headers: corsHeaders });
 }
 
+// =========================================================================
+// Google Firebase Cloud Messaging (FCM v1) High-Priority Dispatch Engine
+// =========================================================================
+const FCM_SERVICE_ACCOUNT = {
+  project_id: "nexus-satellite",
+  client_email: "firebase-adminsdk-fbsvc@nexus-satellite.iam.gserviceaccount.com",
+  private_key_b64: "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUV2Z0lCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQktnd2dnU2tBZ0VBQW9JQkFRRGNBc0lKVUs5eDlvU2cKY2RGQ2YzNzdtbVp5Q0pVZmt4RUY3akY4RXkwUGhrcFNxckJlWmpLN1JiN2FWWUt4bmpndnNlQUFHTFZwSklMbApNd1F2RVVyUWpnYjR5cytmV1VhaUwzem5uakQ3OXpaUDQyd1ZiSHJTd0QwSEo4aUtVdnp6ZjFPdndubUdNU0FHCkJ2dnNlTzlwQzNqYmVMeHIzeDF6ZWdkU1FCbjZsWnlTbk9yS1U0c252Yk1lMnVUQU1wSG1DeG8vdnRoczR0V28KZjdNU2kyUW5Wa3RDS2RsNnBadzNuRmdUbnQwTEV4TUZVdk81TjNKcDJDZUlLeU5lQ2VJb2RpeWRORjNqWkVUbQpJWGJkeHpPQm1zMzU4aUlKSWtwOGlqWVdrYVlIZE11YzBOY3M5UDNDY2NNTnovaWszR1dGc1BOaVNHczVYUkFOCjBkZnI5cTdkQWdNQkFBRUNnZ0VBRm5URW0rRkxxeERyckJtNTczVG1mK1ZjVUFiZXU3U040QUpXTkRFYjRCSUgKcTRUbkVCZVQxWWdTcVNQaHZXSG1INzRpM0RlcGFwUXl0UlMrT0ZTbVEzKy9wK3pCZ09VQ24rTERkN3V1aWNWTAptcDllcEpnb09ETXRkM25BenhlVjRIK3VTY29Lajk4YlF1bzdGQUdyQkJpSzZ6SFpYNVJNSkFHQVZrMmJLVGVrCktvNmVnZFBRQWI0WHJGUUt0b0x5dmVQUmRPYy9uQ1NtOHpUd3BSMFhOWEJIRjl2bTg4ZHUwVkVNRDNtRkU0SjkKVHd3S0tvYjJzSWMxTTM3OUw2SnJlRkRIU2ZUZHZXeWx6aUY2WEd6ZVRTN0dxTDRVRGNvQm1BeXc1L2lYODQrTgovYWl4M0RSM2w0Q1o5Smp1bUZZUWZHVlJMNTVGWHRmd0ZUT05ZTDNKcVFLQmdRRHYvUm83c1Z3R3ZzY2dUa2ZXCkZsZ2VjRWhQbjJNWFlvZUF0RUFCa2pQRERkODVqS2twNGdyelpKbTBPeW9lSmpiK0hzZUw0TnQ2OTlFaEpzMWEKWHZMN3pZUXVxM1RzdTRkdXV3ekxtaWdKZDZ1d1RXUEhVSUxaSjQrOE1Dd3VSNVlPbnlTT0liQ2xQTi96WkZSQwowcGFJa051d25ZS20vMWUvRUx0cnVYSURWUUtCZ1FEcXNIRWYvMFFCd3pENkw1N0dwK0JRMmNURXI1N1UrVkVCClBqcklBd2JNcmNEeTZrNXZRYmMzQytlRlJyZ3RGVEZSRWRwdmN1WkpXQ1EzYUF2OEh2UjlvM2U1Uno5WDluTkoKcUZhZVk4N1NQcUVlRGxqTmhLaXdnUzNweVdnVkt6Q0NyWWNhM1hiR1Z2ZlFHRFFsbVUwbW5tZ3Y2ZFJXb0NJbgo2TjI0MmVnTmFRS0JnUUR0bVBRRDdWQmpEVFl2OGRDRlVKSGxjTnptbDdLUFVKay9MelcvV0hRT3hRa2YvUGJ1CkZIRXJENHB0T2JZMUt6aCsxeEpRbGtvMXNHeElHaFp0Umx2aW1GSXBzbTZNZ2cxUHY3aW5TdlFnaTI1Ym1nTVQKTGM2ZUYrRGlPLzlCd25YNSsrMUJHbkc4NWt3Q3VHNER5bUpteXFQMmM3c0tndnJvbXpRekx1S0dFUUtCZ0U4RAo0c0tFSGpCOXVGS3pqOENRcXV4dHRWc0hTZkdvazBaWTNrK1MvVW9TUWdGSE0rc3ZjL0VibC9KK1Vlb1QxWXZXCjkvVkgrUksrazByNFEvaTVyMVZSb1RDSE5XTjNQVytTTnIrVEdRSWVSZjZwaytwMS9KbVlsSTIrMnNVdHltSmsKN0RUMlZWUUgyZDE5R0ttRUNMNjAzSjB0RyttaWRuMTdZSk1wQW9EcEFvR0JBTGtMNytGNnhiY1RSbDZJczVsNwpFa2JycURuWmsvaEVydlpLWVBjWGVsVElBQlFZS2JzLy9SWXJWVWppRnJlUzNtYXpIcmh2SUZLVGFlVzBaYnhZCnN2RGp0ejBEZFp4Tk5sOGdYWkJCWDlJRTRwbTIzaGwzN0VURTNTb0hoN2NzWTNORVQrQis2elltWE5KRTJCV04KbnVIb3I1elY3OXBubVZXQzBkQmp1dVFBCi0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0="
+};
+
+let cachedGoogleToken = null;
+let tokenExpiresAt = 0;
+
+function pemToBinary(pem) {
+  const b64Lines = pem.replace(/-----[^\n]+-----/g, '').replace(/\s+/g, '');
+  const raw = atob(b64Lines);
+  const u8 = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) u8[i] = raw.charCodeAt(i);
+  return u8.buffer;
+}
+
+async function getGoogleAccessToken() {
+  const now = Math.floor(Date.now() / 1000);
+  if (cachedGoogleToken && now < tokenExpiresAt - 60) {
+    return cachedGoogleToken;
+  }
+
+  const pem = atob(FCM_SERVICE_ACCOUNT.private_key_b64);
+  const binaryDer = pemToBinary(pem);
+  const key = await crypto.subtle.importKey(
+    'pkcs8',
+    binaryDer,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+
+  const header = btoa(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const claim = btoa(JSON.stringify({
+    iss: FCM_SERVICE_ACCOUNT.client_email,
+    scope: 'https://www.googleapis.com/auth/firebase.messaging',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600,
+    iat: now
+  })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+
+  const encodedData = new TextEncoder().encode(`${header}.${claim}`);
+  const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, encodedData);
+  const sigBase64 = btoa(String.fromCharCode(...new Uint8Array(signature))).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+
+  const jwt = `${header}.${claim}.${sigBase64}`;
+  const resp = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`
+  });
+  const data = await resp.json();
+  if (data.access_token) {
+    cachedGoogleToken = data.access_token;
+    tokenExpiresAt = now + (data.expires_in || 3600);
+    return cachedGoogleToken;
+  }
+  throw new Error('Failed to acquire Google OAuth2 Token: ' + JSON.stringify(data));
+}
+
+async function sendGoogleFcmPush(topic, dataPayload) {
+  try {
+    const token = await getGoogleAccessToken();
+    const res = await fetch(`https://fcm.googleapis.com/v1/projects/${FCM_SERVICE_ACCOUNT.project_id}/messages:send`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        message: {
+          topic: topic,
+          data: dataPayload,
+          android: {
+            priority: 'HIGH'
+          }
+        }
+      })
+    });
+    const json = await res.json();
+    return json;
+  } catch (err) {
+    console.error('FCM Push Error:', err);
+  }
+}
+
 export async function onRequest(context) {
   return handleRequest(context.request, context.env);
 }
@@ -355,3 +457,4 @@ export default {
     return handleRequest(request, env);
   }
 };
+

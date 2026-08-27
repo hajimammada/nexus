@@ -1,10 +1,10 @@
 {
     "logs": [
         {
-            "outputFile": "com.nexus.satellite.app-mergeDebugResources-29:/values-port/values-port.xml",
+            "outputFile": "com.nexus.satellite.app-mergeDebugResources-34:/values-port/values-port.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\aliye\\.gradle\\caches\\transforms-3\\1390ed0e93696117e0bd1340aa2458d6\\transformed\\appcompat-1.6.1\\res\\values-port\\values-port.xml",
+                    "source": "C:\\Users\\aliye\\.gradle\\caches\\transforms-3\\aca6ffd7568c1febcda573d59e571d79\\transformed\\appcompat-1.6.1\\res\\values-port\\values-port.xml",
                     "from": {
                         "startLines": "2",
                         "startColumns": "4",

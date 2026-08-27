@@ -9,3 +9,5 @@ credentials.md
 *secret*.md
 *credential*.md
 trash/
+google-services.json
+*adminsdk*.json

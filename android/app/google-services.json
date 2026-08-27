@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "874650840159",
+    "project_id": "nexus-satellite",
+    "storage_bucket": "nexus-satellite.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:874650840159:android:70472f2c17de536f0b7fea",
+        "android_client_info": {
+          "package_name": "com.nexus.satellite"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCR13ytXlHzH4owMYGxcwGV03NzVrAQamw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
