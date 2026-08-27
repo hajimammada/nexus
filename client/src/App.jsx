@@ -36,7 +36,7 @@ import {
   RelayManager 
 } from './utils/api';
 
-const APP_VERSION = 'v3.5.0';
+const APP_VERSION = 'v3.5.1';
 
 export default function App() {
   const [settings, setSettings] = useState(() => getStoredSettings());
@@ -382,8 +382,7 @@ export default function App() {
             {/* 3. Sleep PC Tile */}
             <button
               onClick={() => handleRequestPowerAction('sleep')}
-              disabled={!isPcOnline}
-              className="relative p-5 rounded-3xl bg-[#111728]/95 hover:bg-indigo-950/60 border border-indigo-500/30 hover:border-indigo-500/60 shadow-lg text-left transition-all duration-200 group flex flex-col justify-between disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer min-h-[170px]"
+              className="relative p-5 rounded-3xl bg-[#111728]/95 hover:bg-indigo-950/60 border border-indigo-500/30 hover:border-indigo-500/60 shadow-lg text-left transition-all duration-200 group flex flex-col justify-between cursor-pointer min-h-[170px]"
             >
               <div className="flex items-center justify-between w-full mb-3">
                 <div className="p-3 rounded-2xl bg-indigo-500/10 text-indigo-400 group-hover:scale-110 transition-transform">
@@ -406,8 +405,7 @@ export default function App() {
             {/* 4. Restart PC Tile */}
             <button
               onClick={() => handleRequestPowerAction('restart')}
-              disabled={!isPcOnline}
-              className="relative p-5 rounded-3xl bg-[#111728]/95 hover:bg-amber-950/60 border border-amber-500/30 hover:border-amber-500/60 shadow-lg text-left transition-all duration-200 group flex flex-col justify-between disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer min-h-[170px]"
+              className="relative p-5 rounded-3xl bg-[#111728]/95 hover:bg-amber-950/60 border border-amber-500/30 hover:border-amber-500/60 shadow-lg text-left transition-all duration-200 group flex flex-col justify-between cursor-pointer min-h-[170px]"
             >
               <div className="flex items-center justify-between w-full mb-3">
                 <div className="p-3 rounded-2xl bg-amber-500/10 text-amber-400 group-hover:rotate-180 transition-transform duration-500">
@@ -430,8 +428,7 @@ export default function App() {
             {/* 5. Shut Down PC Tile */}
             <button
               onClick={() => handleRequestPowerAction('shutdown')}
-              disabled={!isPcOnline}
-              className="relative p-5 rounded-3xl bg-[#111728]/95 hover:bg-rose-950/60 border border-rose-500/30 hover:border-rose-500/60 shadow-lg text-left transition-all duration-200 group flex flex-col justify-between disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer min-h-[170px]"
+              className="relative p-5 rounded-3xl bg-[#111728]/95 hover:bg-rose-950/60 border border-rose-500/30 hover:border-rose-500/60 shadow-lg text-left transition-all duration-200 group flex flex-col justify-between cursor-pointer min-h-[170px]"
             >
               <div className="flex items-center justify-between w-full mb-3">
                 <div className="p-3 rounded-2xl bg-rose-500/10 text-rose-400 group-hover:scale-110 transition-transform">
@@ -454,8 +451,7 @@ export default function App() {
             {/* 6. Lock Workstation Tile */}
             <button
               onClick={() => handleRequestPowerAction('lock')}
-              disabled={!isPcOnline}
-              className="relative p-5 rounded-3xl bg-[#111728]/95 hover:bg-blue-950/60 border border-blue-500/30 hover:border-blue-500/60 shadow-lg text-left transition-all duration-200 group flex flex-col justify-between disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer min-h-[170px]"
+              className="relative p-5 rounded-3xl bg-[#111728]/95 hover:bg-blue-950/60 border border-blue-500/30 hover:border-blue-500/60 shadow-lg text-left transition-all duration-200 group flex flex-col justify-between cursor-pointer min-h-[170px]"
             >
               <div className="flex items-center justify-between w-full mb-3">
                 <div className="p-3 rounded-2xl bg-blue-500/10 text-blue-400 group-hover:scale-110 transition-transform">

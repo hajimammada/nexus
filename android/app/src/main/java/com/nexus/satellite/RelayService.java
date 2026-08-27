@@ -198,8 +198,24 @@ public class RelayService extends Service {
                                         int code = conn.getResponseCode();
                                         conn.disconnect();
                                         Log.i(TAG, "Power dispatch " + finalEndpoint + " returned " + code);
+
+                                        JSONObject resp = new JSONObject();
+                                        resp.put("type", "ACTION_RESPONSE");
+                                        resp.put("action", action);
+                                        resp.put("subAction", subAction);
+                                        resp.put("success", code >= 200 && code < 300);
+                                        resp.put("message", (code >= 200 && code < 300) ? (finalEndpoint.replace("/api/power/", "").toUpperCase() + " executed via Satellite Gateway") : ("HTTP " + code));
+                                        ws.send(resp.toString());
                                     } catch (Exception e) {
                                         Log.w(TAG, "Power dispatch error: " + e.getMessage());
+                                        try {
+                                            JSONObject resp = new JSONObject();
+                                            resp.put("type", "ACTION_RESPONSE");
+                                            resp.put("action", action);
+                                            resp.put("success", false);
+                                            resp.put("message", "Satellite Gateway error: " + e.getMessage());
+                                            ws.send(resp.toString());
+                                        } catch (Exception ignored) {}
                                     }
                                 }
                             }).start();

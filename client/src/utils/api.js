@@ -214,15 +214,14 @@ export async function executePowerAction(action, settings, relayManager = null, 
 
   // 1. WebSocket Relay Dispatch
   if (relayManager && relayManager.isConnected) {
-    if (action === 'wake') {
+    const actUpper = action.toUpperCase();
+    if (actUpper === 'WAKE' || actUpper === 'TURN ON') {
       relayManager.sendCommand('WAKE', null, { targetMac: settings.targetMac });
-      return { success: true, message: 'Wake-on-LAN magic packet dispatched via Home Satellite!' };
-    }
-    if (action === 'unlock') {
+    } else if (actUpper === 'UNLOCK') {
       relayManager.sendCommand('UNLOCK', null, { targetIp: settings.targetIp });
-      return { success: true, message: 'OpenSSH unlock signal dispatched via Home Satellite!' };
+    } else {
+      relayManager.sendCommand('POWER', action.toLowerCase(), options);
     }
-    relayManager.sendCommand('POWER', action, options);
   }
 
   // 2. Edge HTTP Dispatch (Dual-Channel Relay)
@@ -232,9 +231,13 @@ export async function executePowerAction(action, settings, relayManager = null, 
       await fetch(`${baseUrl}/api/command/dispatch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pairCode, action: 'POWER', subAction: action, payload: options })
+        body: JSON.stringify({ 
+          pairCode, 
+          action: action.toUpperCase() === 'WAKE' ? 'WAKE' : (action.toUpperCase() === 'UNLOCK' ? 'UNLOCK' : 'POWER'), 
+          subAction: action.toLowerCase(), 
+          payload: { ...options, targetMac: settings.targetMac, targetIp: settings.targetIp } 
+        })
       });
-      return { success: true, message: `${action.toUpperCase()} command dispatched to PC!` };
     } catch (e) {}
   }
 

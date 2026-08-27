@@ -262,11 +262,12 @@ export async function handleRequest(request, env) {
     else room.clients.add(serverWs);
 
     const broadcastState = () => {
+      const isOnline = room.agents.size > 0 || room.satellites.size > 0;
       const statePayload = JSON.stringify({
         type: 'ROOM_STATE',
         roomId,
-        online: room.agents.size > 0,
-        isOnline: room.agents.size > 0,
+        online: isOnline,
+        isOnline: isOnline,
         agentsCount: room.agents.size,
         satellitesCount: room.satellites.size,
         clientsCount: room.clients.size,
@@ -285,21 +286,21 @@ export async function handleRequest(request, env) {
         const msg = JSON.parse(raw);
 
         if (role === 'client') {
-          if (msg.action === 'WAKE') {
-            for (const s of room.satellites) {
-              try { s.send(JSON.stringify({ type: 'EXECUTE', action: 'WAKE', payload: msg.payload })); } catch (e) {}
-            }
-          } else if (msg.action === 'UNLOCK') {
-            for (const s of room.satellites) {
-              try { s.send(JSON.stringify({ type: 'EXECUTE', action: 'UNLOCK', payload: msg.payload })); } catch (e) {}
-            }
-            for (const a of room.agents) {
-              try { a.send(JSON.stringify({ type: 'EXECUTE', action: 'UNLOCK', payload: msg.payload })); } catch (e) {}
-            }
-          } else if (msg.action === 'POWER' || msg.action === 'TERMINAL') {
-            for (const a of room.agents) {
-              try { a.send(JSON.stringify({ type: 'EXECUTE', action: msg.action, subAction: msg.subAction, payload: msg.payload, reqId: msg.reqId })); } catch (e) {}
-            }
+          const executePayload = JSON.stringify({
+            type: 'EXECUTE',
+            action: msg.action,
+            subAction: msg.subAction,
+            payload: msg.payload || {},
+            reqId: msg.reqId || Date.now().toString()
+          });
+
+          // Forward to ALL Satellites (Local LAN Wi-Fi Gateways)
+          for (const s of room.satellites) {
+            try { s.send(executePayload); } catch (e) {}
+          }
+          // Forward to direct PC Agents
+          for (const a of room.agents) {
+            try { a.send(executePayload); } catch (e) {}
           }
         }
 
