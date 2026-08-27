@@ -37,8 +37,7 @@
         <service
             android:name=".RelayService"
             android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="connectedDevice" />
+            android:exported="false" />
 
         <receiver
             android:name=".BootReceiver"
