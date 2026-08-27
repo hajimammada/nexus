@@ -227,23 +227,45 @@ function executeTerminal(command, cwd = null, timeoutMs = 25000) {
 }
 
 // -------------------------------------------------------------
-// Outbound Cloudflare WebSocket Relay Client
+// Outbound Cloudflare WebSocket Relay Client & Persistent Heartbeat
 // -------------------------------------------------------------
-let activePairCode = '';
-let activeRoomId = '';
-let activeToken = '';
+const PAIRING_FILE = path.join(__dirname, 'pairing.json');
+
+function loadSavedPairing() {
+  try {
+    if (fs.existsSync(PAIRING_FILE)) {
+      return JSON.parse(fs.readFileSync(PAIRING_FILE, 'utf8'));
+    }
+  } catch (e) {}
+  return null;
+}
+
+function savePairing(data) {
+  try {
+    fs.writeFileSync(PAIRING_FILE, JSON.stringify(data, null, 2), 'utf8');
+  } catch (e) {}
+}
+
+const savedPair = loadSavedPairing();
+let activePairCode = savedPair?.pairCode || '163860';
+let activeRoomId = savedPair?.roomId || `room_${activePairCode}_pc`;
+let activeToken = savedPair?.token || 'token_' + activePairCode;
 let relayWs = null;
 let telemetryInterval = null;
+let heartbeatInterval = null;
 
 async function registerAndConnectRelay() {
   const net = getPrimaryNetworkInfo();
   console.log(`[RELAY] Registering with Cloudflare Relay Hub: ${RELAY_URL}...`);
 
   try {
-    const res = await fetch(`${RELAY_URL}/api/pair/create`, {
+    const res = await fetch(`${RELAY_URL}/api/pair/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        pairCode: activePairCode,
+        roomId: activeRoomId,
+        token: activeToken,
         mac: net.mac,
         localIp: net.ip,
         hostname: os.hostname(),
@@ -255,7 +277,7 @@ async function registerAndConnectRelay() {
     const data = await res.json();
     if (!res.ok || !data.success) {
       console.warn('[RELAY] Registration failed:', data.error || 'Unknown error');
-      setTimeout(registerAndConnectRelay, 10000);
+      setTimeout(registerAndConnectRelay, 5000);
       return;
     }
 
@@ -263,15 +285,47 @@ async function registerAndConnectRelay() {
     activeRoomId = data.roomId;
     activeToken = data.token;
 
+    savePairing({
+      pairCode: activePairCode,
+      roomId: activeRoomId,
+      token: activeToken,
+      updatedAt: new Date().toISOString()
+    });
+
     console.log(`=======================================================`);
     console.log(`🎉 6-DIGIT PAIRING CODE READY: [ ${activePairCode} ]`);
     console.log(`🔗 Dashboard Link: ${RELAY_URL}/#pair=${activePairCode}`);
     console.log(`=======================================================`);
 
     connectRelayWs();
+
+    // Start periodic 15-second heartbeat registration so Cloudflare never loses the PIN
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    heartbeatInterval = setInterval(async () => {
+      try {
+        await fetch(`${RELAY_URL}/api/pair/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pairCode: activePairCode,
+            roomId: activeRoomId,
+            token: activeToken,
+            mac: net.mac,
+            localIp: net.ip,
+            hostname: os.hostname(),
+            agentKey: AGENT_KEY,
+            pcName: os.hostname()
+          })
+        });
+        if (!relayWs || relayWs.readyState === WebSocket.CLOSED) {
+          connectRelayWs();
+        }
+      } catch (e) {}
+    }, 15000);
+
   } catch (err) {
-    console.warn(`[RELAY] Connection to relay failed (${err.message}). Retrying in 10s...`);
-    setTimeout(registerAndConnectRelay, 10000);
+    console.warn(`[RELAY] Connection to relay failed (${err.message}). Retrying in 5s...`);
+    setTimeout(registerAndConnectRelay, 5000);
   }
 }
 

@@ -54,19 +54,22 @@ export default {
     // -------------------------------------------------------------
     cleanExpiredPairings();
 
-    // POST /api/pair/create -> Called by PC Agent at boot/installer to register pairing code
-    if (url.pathname === '/api/pair/create' && request.method === 'POST') {
+    // POST /api/pair/create or /api/pair/register -> Called by PC Agent to register or refresh pairing code
+    if ((url.pathname === '/api/pair/create' || url.pathname === '/api/pair/register') && request.method === 'POST') {
       try {
         const body = await request.json();
-        const { mac = '', localIp = '', hostname = 'Nexus-PC', agentKey = '', pcName = '' } = body;
+        const { mac = '', localIp = '', hostname = 'Nexus-PC', agentKey = '', pcName = '', roomId: reqRoomId, token: reqToken } = body;
         
-        let pairCode = generatePairCode();
-        while (activePairings.has(pairCode)) {
+        let pairCode = (body.pairCode || '').trim();
+        if (!pairCode) {
           pairCode = generatePairCode();
+          while (activePairings.has(pairCode)) {
+            pairCode = generatePairCode();
+          }
         }
 
-        const roomId = `room_${pairCode}_${Date.now().toString(36)}`;
-        const token = crypto.randomUUID();
+        const roomId = reqRoomId || `room_${pairCode}_${Date.now().toString(36)}`;
+        const token = reqToken || crypto.randomUUID();
 
         const pairData = {
           pairCode,
@@ -80,19 +83,23 @@ export default {
         };
 
         activePairings.set(pairCode, pairData);
-        activeRooms.set(roomId, {
-          clients: new Set(),
-          satellites: new Set(),
-          agents: new Set(),
-          config: pairData
-        });
+        if (!activeRooms.has(roomId)) {
+          activeRooms.set(roomId, {
+            clients: new Set(),
+            satellites: new Set(),
+            agents: new Set(),
+            config: pairData
+          });
+        } else {
+          activeRooms.get(roomId).config = pairData;
+        }
 
         return new Response(JSON.stringify({
           success: true,
           pairCode,
           roomId,
           token,
-          expiresInSeconds: 900,
+          expiresInSeconds: 3600,
           dashboardUrl: `${url.origin}/#pair=${pairCode}`
         }), { headers: corsHeaders });
       } catch (err) {
