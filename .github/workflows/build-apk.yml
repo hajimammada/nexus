@@ -23,15 +23,18 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       - name: Make Gradlew Executable
         run: chmod +x android/gradlew
 
       - name: Build Android APK
         working-directory: ./android
-        run: ./gradlew assembleDebug --stacktrace --no-daemon
+        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
       - name: Prepare APK Asset
         run: |
