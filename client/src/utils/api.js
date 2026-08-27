@@ -229,7 +229,7 @@ export async function executePowerAction(action, settings, relayManager = null, 
   if (pairCode) {
     try {
       const baseUrl = settings.relayUrl || 'https://nexus.hajimammad.com';
-      await fetch(`${baseUrl}/api/command/dispatch`, {
+      const dispatchRes = await fetch(`${baseUrl}/api/command/dispatch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -241,9 +241,14 @@ export async function executePowerAction(action, settings, relayManager = null, 
         })
       });
 
-      // Poll for verified execution ACK from Android Satellite Gateway (up to 4s)
-      for (let i = 0; i < 8; i++) {
-        await new Promise(r => setTimeout(r, 450));
+      const dispatchData = await dispatchRes.json();
+      if (!dispatchData.success) {
+        throw new Error(dispatchData.message || 'Firebase Push Failed');
+      }
+
+      // Poll for verified execution ACK from Android Satellite Gateway (up to 5s)
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 500));
         try {
           const pollRes = await fetch(`${baseUrl}/api/command/result?reqId=${reqId}`);
           if (pollRes.ok) {
@@ -255,8 +260,13 @@ export async function executePowerAction(action, settings, relayManager = null, 
         } catch (e) {}
       }
 
-      return { success: true, message: `📡 ${action.toUpperCase()} dispatched to Home Satellite Gateway!` };
-    } catch (e) {}
+      return { 
+        success: true, 
+        message: `🔥 Google Push Sent! (Waiting for Phone Execution: ${dispatchData.message || 'FCM 200 OK'})` 
+      };
+    } catch (e) {
+      throw new Error(`Firebase / Dispatch Error: ${e.message}`);
+    }
   }
 
   // 3. Direct HTTP Local Fallback (if on same Wi-Fi)

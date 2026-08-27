@@ -1,8 +1,11 @@
 package com.nexus.satellite;
 
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -92,6 +95,21 @@ public class MainActivity extends AppCompatActivity {
 
         NexusFirebaseMessagingService.subscribeToCurrentTopic();
         loadSavedState();
+
+        android.content.BroadcastReceiver logReceiver = new android.content.BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (intent != null && intent.hasExtra("log")) {
+                    appendLog(intent.getStringExtra("log"));
+                }
+            }
+        };
+        android.content.IntentFilter filter = new android.content.IntentFilter("com.nexus.satellite.LOG_EVENT");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(logReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(logReceiver, filter);
+        }
 
         btnClearLogs.setOnClickListener(new View.OnClickListener() {
             @Override

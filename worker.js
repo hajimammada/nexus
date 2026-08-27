@@ -190,8 +190,7 @@ export async function handleRequest(request, env) {
         payload: typeof payload === 'object' ? JSON.stringify(payload) : String(payload)
       };
       
-      // Fire FCM push asynchronously
-      sendGoogleFcmPush(topic, fcmData).catch(() => {});
+      const fcmResult = await sendGoogleFcmPush(topic, fcmData);
 
       // 2. Send via WebSocket if satellite or agent is connected to this isolate
       const pair = activePairings.get(code);
@@ -209,7 +208,17 @@ export async function handleRequest(request, env) {
       if (!pendingCommands.has(code)) pendingCommands.set(code, []);
       pendingCommands.get(code).push(cmdObj);
 
-      return new Response(JSON.stringify({ success: true, reqId, message: 'High-priority Google FCM Push dispatched to Android Satellite.' }), { headers: corsHeaders });
+      const fcmOk = fcmResult && fcmResult.ok;
+      const fcmMsg = fcmOk
+        ? `Google FCM Push Sent to [${topic}]`
+        : `Google FCM Error: ${fcmResult ? (fcmResult.error || JSON.stringify(fcmResult.data?.error || fcmResult)) : 'Unknown'}`;
+
+      return new Response(JSON.stringify({ 
+        success: fcmOk, 
+        reqId, 
+        fcm: fcmResult,
+        message: fcmMsg 
+      }), { headers: corsHeaders });
     } catch (err) {
       return new Response(JSON.stringify({ success: false, error: err.message }), { status: 400, headers: corsHeaders });
     }
@@ -442,9 +451,10 @@ async function sendGoogleFcmPush(topic, dataPayload) {
       })
     });
     const json = await res.json();
-    return json;
+    return { ok: res.ok, status: res.status, data: json };
   } catch (err) {
     console.error('FCM Push Error:', err);
+    return { ok: false, error: err.message || String(err) };
   }
 }
 

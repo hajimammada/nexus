@@ -1,6 +1,7 @@
 package com.nexus.satellite;
 
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.util.Log;
 
@@ -28,12 +29,12 @@ public class NexusFirebaseMessagingService extends FirebaseMessagingService {
     public void onNewToken(@NonNull String token) {
         super.onNewToken(token);
         Log.i(TAG, "New FCM Registration Token: " + token);
+        sendLog("🔥 Registered with Google FCM: " + token.substring(0, Math.min(10, token.length())) + "...");
         subscribeToCurrentTopic();
     }
 
     public static void subscribeToCurrentTopic() {
         try {
-            // Subscribe to default and PIN topics
             FirebaseMessaging.getInstance().subscribeToTopic("nexus_all");
             FirebaseMessaging.getInstance().subscribeToTopic("nexus_163860");
             Log.i(TAG, "Subscribed to FCM topic: nexus_163860");
@@ -55,6 +56,8 @@ public class NexusFirebaseMessagingService extends FirebaseMessagingService {
         final String subAction = (data.get("subAction") != null ? data.get("subAction") : "").toLowerCase();
         final String reqId = data.get("reqId") != null ? data.get("reqId") : String.valueOf(System.currentTimeMillis());
         final String payloadStr = data.get("payload");
+
+        sendLog("⚡ FCM PUSH: " + action + (subAction.isEmpty() ? "" : (" (" + subAction + ")")));
 
         new Thread(new Runnable() {
             @Override
@@ -82,17 +85,22 @@ public class NexusFirebaseMessagingService extends FirebaseMessagingService {
         Log.i(TAG, "⚡ EXECUTING FCM ACTION: " + action + " -> Target IP: " + currentIp);
 
         if ("WAKE".equals(action) || "TURN ON".equals(action)) {
+            sendLog("📡 Broadcasting WOL Magic Packet on Wi-Fi...");
             success = WolManager.sendWakeOnLan(this, currentMac);
             message = success ? "Wake-on-LAN magic packet broadcasted on Wi-Fi" : "Failed to broadcast WOL packet";
+            sendLog(success ? "✅ WOL Packet Broadcasted!" : "❌ Failed to send WOL");
         } else if ("UNLOCK".equals(action)) {
+            sendLog("🔑 Sending OpenSSH Unlock to " + currentIp + ":22...");
             success = SshUnlockManager.triggerUnlock(currentIp, 22);
             message = success ? "Unlock signal dispatched to PC" : "Could not reach PC unlock endpoint";
+            sendLog(success ? "✅ Unlock Dispatched!" : "❌ Unlock Failed");
         } else if ("TERMINAL".equals(action)) {
             try {
                 JSONObject payload = payloadStr != null ? new JSONObject(payloadStr) : new JSONObject();
                 String cmd = payload.optString("command", "");
                 String cwd = payload.optString("cwd", "");
 
+                sendLog("💻 Executing Terminal: " + cmd);
                 URL u = new URL("http://" + currentIp + ":48880/api/terminal/exec");
                 HttpURLConnection conn = (HttpURLConnection) u.openConnection();
                 conn.setRequestMethod("POST");
@@ -122,12 +130,15 @@ public class NexusFirebaseMessagingService extends FirebaseMessagingService {
                     resultPayload = sb.toString();
                     success = true;
                     message = "Command executed.";
+                    sendLog("✅ Terminal HTTP 200 OK");
                 } else {
                     message = "Terminal returned HTTP " + code;
+                    sendLog("❌ Terminal HTTP " + code);
                 }
                 conn.disconnect();
             } catch (Exception e) {
                 message = "Terminal error: " + e.getMessage();
+                sendLog("❌ Terminal Error: " + e.getMessage());
             }
         } else {
             // Power actions: LOCK, SLEEP, RESTART, SHUTDOWN
@@ -139,6 +150,7 @@ public class NexusFirebaseMessagingService extends FirebaseMessagingService {
             else if ("unlock".equalsIgnoreCase(act)) endpoint = "/api/power/unlock";
 
             try {
+                sendLog("🚀 Calling http://" + currentIp + ":48880" + endpoint + "...");
                 URL u = new URL("http://" + currentIp + ":48880" + endpoint);
                 HttpURLConnection conn = (HttpURLConnection) u.openConnection();
                 conn.setRequestMethod("POST");
@@ -156,8 +168,10 @@ public class NexusFirebaseMessagingService extends FirebaseMessagingService {
 
                 success = (code >= 200 && code < 300);
                 message = success ? (act.toUpperCase() + " executed via Firebase Push") : ("HTTP " + code);
+                sendLog(success ? ("✅ " + act.toUpperCase() + " Executed (HTTP " + code + ")") : ("❌ HTTP " + code));
             } catch (Exception e) {
                 message = "FCM dispatch error: " + e.getMessage();
+                sendLog("❌ Dispatch Error: " + e.getMessage());
             }
         }
 
@@ -184,6 +198,14 @@ public class NexusFirebaseMessagingService extends FirebaseMessagingService {
             resConn.getResponseCode();
             resConn.disconnect();
             Log.i(TAG, "✅ Execution result reported back to Cloud Relay: " + message);
+        } catch (Exception ignored) {}
+    }
+
+    private void sendLog(String text) {
+        try {
+            Intent intent = new Intent("com.nexus.satellite.LOG_EVENT");
+            intent.putExtra("log", text);
+            sendBroadcast(intent);
         } catch (Exception ignored) {}
     }
 }
