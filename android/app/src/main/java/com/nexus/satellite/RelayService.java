@@ -32,7 +32,9 @@ public class RelayService extends Service {
     private PowerManager.WakeLock wakeLock;
     private WifiManager.WifiLock wifiLock;
     private WebSocket webSocket;
+    private final java.util.concurrent.atomic.AtomicBoolean isReconnecting = new java.util.concurrent.atomic.AtomicBoolean(false);
     private final OkHttpClient client = new OkHttpClient.Builder()
+            .pingInterval(15, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .retryOnConnectionFailure(true)
             .build();
@@ -79,7 +81,7 @@ public class RelayService extends Service {
             if (intent.hasExtra("relayUrl")) relayUrl = intent.getStringExtra("relayUrl");
         }
 
-        startForeground(NOTIFICATION_ID, buildNotification("Connecting to Nexus Cloud Relay..."));
+        startForeground(NOTIFICATION_ID, buildNotification("Active 24/7 Home Relay • Connecting..."));
         connectWebSocket();
 
         return START_STICKY;
@@ -103,11 +105,15 @@ public class RelayService extends Service {
         }
     }
 
-    private void connectWebSocket() {
+    private synchronized void connectWebSocket() {
         if (roomId == null || roomId.isEmpty()) return;
-        if (webSocket != null) {
-            webSocket.close(1000, "Reconnecting");
-        }
+
+        try {
+            if (webSocket != null) {
+                webSocket.cancel();
+                webSocket = null;
+            }
+        } catch (Exception ignored) {}
 
         String wsUrl = relayUrl.replace("https://", "wss://").replace("http://", "ws://") +
                 "/api/relay?room=" + roomId + "&role=satellite&token=" + token;
@@ -118,6 +124,7 @@ public class RelayService extends Service {
         webSocket = client.newWebSocket(request, new WebSocketListener() {
             @Override
             public void onOpen(WebSocket ws, Response response) {
+                isReconnecting.set(false);
                 Log.i(TAG, "Connected to Cloud Relay Room: " + roomId);
                 updateNotification("Active 24/7 Home Relay • Ready for WOL");
 
@@ -168,30 +175,31 @@ public class RelayService extends Service {
 
             @Override
             public void onClosed(WebSocket ws, int code, String reason) {
-                Log.w(TAG, "WebSocket Closed. Retrying in 5s...");
-                updateNotification("Reconnecting to Cloud Relay...");
-                reconnectLater();
+                Log.w(TAG, "WebSocket Closed (" + code + "). Reconnecting in 4s...");
+                scheduleReconnect();
             }
 
             @Override
             public void onFailure(WebSocket ws, Throwable t, Response response) {
-                Log.e(TAG, "WebSocket Failure: " + t.getMessage() + ". Retrying in 5s...");
-                updateNotification("Connection dropped. Retrying...");
-                reconnectLater();
+                Log.e(TAG, "WebSocket Failure: " + (t != null ? t.getMessage() : "Dropped") + ". Reconnecting in 4s...");
+                scheduleReconnect();
             }
         });
     }
 
-    private void reconnectLater() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    Thread.sleep(5000);
+    private void scheduleReconnect() {
+        if (isReconnecting.compareAndSet(false, true)) {
+            updateNotification("Reconnecting to Cloud Relay...");
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Thread.sleep(4000);
+                    } catch (InterruptedException ignored) {}
                     connectWebSocket();
-                } catch (InterruptedException ignored) {}
-            }
-        }).start();
+                }
+            }).start();
+        }
     }
 
     private void createNotificationChannel() {
