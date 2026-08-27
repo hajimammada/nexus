@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
@@ -27,7 +27,7 @@ function loadConfig() {
     if (fs.existsSync(CONFIG_FILE)) {
       const data = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
       config = { ...config, ...data };
-      console.log([SATELLITE] Loaded config: Room=, Target MAC=);
+      console.log(`[SATELLITE] Loaded config: Room=${config.roomId}, Target MAC=${config.targetMac}`);
     }
   } catch (err) {
     console.error('[SATELLITE] Error loading config:', err.message);
@@ -54,7 +54,7 @@ function sendWakeOnLan(macAddress) {
     // Normalize MAC address string
     const cleanMac = macAddress.replace(/[^0-9A-Fa-f]/g, '');
     if (cleanMac.length !== 12) {
-      return reject(new Error(Invalid MAC address format: ));
+      return reject(new Error(`Invalid MAC address format: ${macAddress}`));
     }
 
     const macBytes = Buffer.from(cleanMac, 'hex');
@@ -87,7 +87,7 @@ function sendWakeOnLan(macAddress) {
       client.send(magicPacket, 0, magicPacket.length, 7, '255.255.255.255', (err) => {
         client.close();
         if (err) return reject(err);
-        console.log([WOL] Magic packet broadcasted successfully for );
+        console.log(`[WOL] Magic packet broadcasted successfully for ${macAddress}`);
         resolve({ success: true, mac: macAddress });
       });
     });
@@ -102,16 +102,15 @@ function sendSshUnlock(targetIp, user = 'aliye') {
     if (!targetIp) return reject(new Error('Target IP is not configured.'));
 
     // Command runs session attach tscon
-    const cmd = ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 @  for /f \\tokens=3\\ %i in query session ^| findstr /i \${user}\ do tscon %i /dest:console;
+    const cmd = `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 ${user}@${targetIp} "for /f \\"tokens=3\\" %i in ('query session ^| findstr /i \\"${user}\\"') do tscon %i /dest:console"`;
 
-    console.log([SSH] Dispatching unlock to @...);
+    console.log(`[SSH] Dispatching unlock to ${user}@${targetIp}...`);
     exec(cmd, { timeout: 8000 }, (err, stdout, stderr) => {
       if (err) {
-        console.warn([SSH] Unlock command error (). Trying fallback tscon 1...);
-        // Fallback try attaching session 1 directly
-        const fallbackCmd = ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 @ tscon 1 /dest:console;
+        console.warn(`[SSH] Unlock command error (${err.message}). Trying fallback tscon 1...`);
+        const fallbackCmd = `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 ${user}@${targetIp} "tscon 1 /dest:console"`;
         exec(fallbackCmd, { timeout: 8000 }, (err2) => {
-          if (err2) return reject(new Error(SSH Unlock failed: ));
+          if (err2) return reject(new Error(`SSH Unlock failed: ${err2.message}`));
           resolve({ success: true, message: 'Unlocked via session 1 fallback' });
         });
       } else {
@@ -134,17 +133,16 @@ function connectToRelay() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
 
   const baseRelay = (config.relayUrl || 'https://nexus.hajimammad.com').replace(/\/$/, '');
-  const wsUrl = ${baseRelay.replace(/^http/, 'ws')}/api/relay?room=&role=satellite&token=;
+  const wsUrl = `${baseRelay.replace(/^http/, 'ws')}/api/relay?room=${encodeURIComponent(config.roomId)}&role=satellite&token=${encodeURIComponent(config.token || '')}`;
 
-  console.log([RELAY] Connecting to Cloud Relay: );
+  console.log(`[RELAY] Connecting to Cloud Relay: ${wsUrl}`);
 
   try {
     ws = new WebSocket(wsUrl);
 
     ws.on('open', () => {
       wsConnected = true;
-      console.log([RELAY] Connected to Cloudflare Relay Room []!);
-      // Broadcast satellite presence
+      console.log(`[RELAY] Connected to Cloudflare Relay Room [${config.roomId}]!`);
       ws.send(JSON.stringify({
         type: 'SATELLITE_ONLINE',
         hostname: require('os').hostname(),
@@ -156,11 +154,11 @@ function connectToRelay() {
     ws.on('message', async (data) => {
       try {
         const msg = JSON.parse(data.toString());
-        console.log([RELAY] Received command:, msg);
+        console.log(`[RELAY] Received command:`, msg);
 
         if (msg.type === 'EXECUTE') {
           if (msg.action === 'WAKE') {
-            console.log([RELAY] Triggering Wake-on-LAN for PC ()...);
+            console.log(`[RELAY] Triggering Wake-on-LAN for PC (${config.targetMac})...`);
             try {
               await sendWakeOnLan(config.targetMac);
               if (ws && ws.readyState === WebSocket.OPEN) {
@@ -168,7 +166,7 @@ function connectToRelay() {
                   type: 'ACTION_RESPONSE',
                   action: 'WAKE',
                   success: true,
-                  message: Magic packet broadcasted to  on local LAN.
+                  message: `Magic packet broadcasted to ${config.targetMac} on local LAN.`
                 }));
               }
             } catch (err) {
@@ -177,7 +175,7 @@ function connectToRelay() {
               }
             }
           } else if (msg.action === 'UNLOCK') {
-            console.log([RELAY] Triggering OpenSSH Unlock for PC ()...);
+            console.log(`[RELAY] Triggering OpenSSH Unlock for PC (${config.targetIp})...`);
             try {
               await sendSshUnlock(config.targetIp);
               if (ws && ws.readyState === WebSocket.OPEN) {
@@ -185,7 +183,7 @@ function connectToRelay() {
                   type: 'ACTION_RESPONSE',
                   action: 'UNLOCK',
                   success: true,
-                  message: Unlock signal dispatched to .
+                  message: `Unlock signal dispatched to ${config.targetIp}.`
                 }));
               }
             } catch (err) {
@@ -258,8 +256,8 @@ app.post('/api/pair', async (req, res) => {
   const baseRelay = relayUrl.replace(/\/$/, '');
 
   try {
-    console.log([PAIR] Claiming 6-digit code [] at /api/pair/claim...);
-    const claimRes = await fetch(${baseRelay}/api/pair/claim, {
+    console.log(`[PAIR] Claiming 6-digit code [${cleanCode}] at ${baseRelay}/api/pair/claim...`);
+    const claimRes = await fetch(`${baseRelay}/api/pair/claim`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pairCode: cleanCode })
@@ -291,7 +289,7 @@ app.post('/api/pair', async (req, res) => {
 
     res.json({ success: true, message: 'Successfully paired with PC!', data: config });
   } catch (err) {
-    res.status(500).json({ success: false, error: Pairing failed:  });
+    res.status(500).json({ success: false, error: `Pairing failed: ${err.message}` });
   }
 });
 
@@ -314,7 +312,7 @@ app.post('/api/unpair', (req, res) => {
 app.post('/api/test/wake', async (req, res) => {
   try {
     const result = await sendWakeOnLan(config.targetMac);
-    res.json({ success: true, message: Wake-on-LAN magic packet sent to  });
+    res.json({ success: true, message: `Wake-on-LAN magic packet sent to ${config.targetMac}` });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -323,7 +321,7 @@ app.post('/api/test/wake', async (req, res) => {
 app.post('/api/test/unlock', async (req, res) => {
   try {
     const result = await sendSshUnlock(config.targetIp);
-    res.json({ success: true, message: SSH unlock signal sent to  });
+    res.json({ success: true, message: `SSH unlock signal sent to ${config.targetIp}` });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -331,9 +329,9 @@ app.post('/api/test/unlock', async (req, res) => {
 
 const server = http.createServer(app);
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(=======================================================);
-  console.log(📡 Nexus Satellite (Home Relay) is running on port );
-  console.log(Local Web UI:  http://localhost:);
-  console.log(Relay Status:  );
-  console.log(=======================================================);
+  console.log(`=======================================================`);
+  console.log(`📡 Nexus Satellite (Home Relay) is running on port ${PORT}`);
+  console.log(`Local Web UI:  http://localhost:${PORT}`);
+  console.log(`Relay Status:  ${config.paired ? 'PAIRED & ACTIVE' : 'UNPAIRED (Waiting for 6-Digit PIN)'}`);
+  console.log(`=======================================================`);
 });
