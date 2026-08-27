@@ -142,10 +142,8 @@ public class MainActivity extends AppCompatActivity {
         try {
             JSONObject json = new JSONObject();
             json.put("pairCode", pin);
-            RequestBody body = RequestBody.create(
-                    json.toString(),
-                    MediaType.parse("application/json; charset=utf-8")
-            );
+            MediaType mediaType = MediaType.parse("application/json; charset=utf-8");
+            RequestBody body = RequestBody.create(mediaType, json.toString());
             Request request = new Request.Builder()
                     .url(relayUrl + "/api/pair/claim")
                     .post(body)
