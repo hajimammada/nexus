@@ -331,17 +331,28 @@ async function registerAndConnectRelay() {
   }
 }
 
+let isConnecting = false;
+
 function connectRelayWs() {
-  if (!activeRoomId) return;
-  if (relayWs && (relayWs.readyState === WebSocket.OPEN || relayWs.readyState === WebSocket.CONNECTING)) return;
+  if (!activeRoomId || isConnecting) return;
+  if (relayWs && relayWs.readyState === WebSocket.OPEN) return;
 
-  const wsUrl = `${RELAY_URL.replace(/^http/, 'ws')}/api/relay?room=${encodeURIComponent(activeRoomId)}&role=agent&token=${encodeURIComponent(activeToken)}`;
-
+  isConnecting = true;
   try {
+    if (relayWs) {
+      try {
+        relayWs.removeAllListeners();
+        relayWs.terminate();
+      } catch (e) {}
+      relayWs = null;
+    }
+
+    const wsUrl = `${RELAY_URL.replace(/^http/, 'ws')}/api/relay?room=${encodeURIComponent(activeRoomId)}&role=agent&token=${encodeURIComponent(activeToken)}`;
     relayWs = new WebSocket(wsUrl);
 
     relayWs.on('open', () => {
-      console.log(`[RELAY-WS] Outbound WebSocket active to room [${activeRoomId}]!`);
+      isConnecting = false;
+      logAction(`[RELAY-WS] Outbound WebSocket active to room [${activeRoomId}]!`);
 
       // Start Telemetry Broadcast Loop (every 3 seconds)
       if (telemetryInterval) clearInterval(telemetryInterval);
@@ -400,24 +411,34 @@ function connectRelayWs() {
       }
     });
 
-    relayWs.on('close', () => {
-      console.log('[RELAY-WS] Disconnected from Cloud Relay. Reconnecting in 3s...');
+    const cleanupAndScheduleReconnect = () => {
+      isConnecting = false;
       if (telemetryInterval) clearInterval(telemetryInterval);
-      relayWs = null;
-      setTimeout(connectRelayWs, 3000);
-    });
+      if (relayWs) {
+        try {
+          relayWs.removeAllListeners();
+          relayWs.terminate();
+        } catch (e) {}
+        relayWs = null;
+      }
+      setTimeout(connectRelayWs, 2000);
+    };
 
-    relayWs.on('error', (err) => {
-      console.error('[RELAY-WS] Socket error:', err.message);
-      try { relayWs.close(); } catch (e) {}
-      relayWs = null;
-    });
+    relayWs.on('close', cleanupAndScheduleReconnect);
+    relayWs.on('error', cleanupAndScheduleReconnect);
 
   } catch (err) {
-    relayWs = null;
-    setTimeout(connectRelayWs, 3000);
+    isConnecting = false;
+    setTimeout(connectRelayWs, 2000);
   }
 }
+
+// Master Watchdog: Every 4 seconds, ensure WebSocket is connected
+setInterval(() => {
+  if (!relayWs || relayWs.readyState !== WebSocket.OPEN) {
+    connectRelayWs();
+  }
+}, 4000);
 
 // -------------------------------------------------------------
 // Local REST Endpoints (Local Wi-Fi Access)
