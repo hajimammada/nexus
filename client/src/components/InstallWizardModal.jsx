@@ -100,7 +100,7 @@ export default function InstallWizardModal({ isOpen, onClose }) {
                     <span>Download Ready-to-Run PC Package</span>
                   </h3>
                   <p className="text-xs text-slate-300 mt-1">
-                    Includes Graphical <code className="text-cyan-300 font-mono">Setup.cmd</code> Wizard (Next &gt; Next &gt; Install &gt; Finish).
+                    Includes Native Graphical <code className="text-cyan-300 font-mono font-bold">Setup.exe</code> Installer (Next &gt; Options &gt; Install &gt; Finish).
                   </p>
                 </div>
 
@@ -145,8 +145,8 @@ export default function InstallWizardModal({ isOpen, onClose }) {
 
                 <div className="p-3.5 rounded-xl bg-[#0f1524] border border-slate-800">
                   <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold text-[10px] mb-2">2</span>
-                  <p className="font-bold text-white">Double-Click Setup.cmd</p>
-                  <p className="text-slate-400 mt-1 text-[11px]">Follow graphical "Next &gt; Next &gt; Install" wizard.</p>
+                  <p className="font-bold text-white">Double-Click Setup.exe</p>
+                  <p className="text-slate-400 mt-1 text-[11px]">Follow native "Next &gt; Install" wizard.</p>
                 </div>
 
                 <div className="p-3.5 rounded-xl bg-[#0f1524] border border-slate-800">

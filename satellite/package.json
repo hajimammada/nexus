@@ -1,6 +1,6 @@
 {
   "name": "nexus-satellite-relay",
-  "version": "3.2.3",
+  "version": "3.3.0",
   "description": "Universal Home Relay and Wake-on-LAN Satellite for Nexus PC Command Center",
   "main": "server.js",
   "scripts": {
