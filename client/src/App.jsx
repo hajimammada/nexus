@@ -36,7 +36,7 @@ import {
   RelayManager 
 } from './utils/api';
 
-const APP_VERSION = 'v3.3.6';
+const APP_VERSION = 'v3.3.7';
 
 export default function App() {
   const [settings, setSettings] = useState(() => getStoredSettings());
