@@ -183,10 +183,12 @@ function executeShutdown() {
 
 function executeLock() {
   logAction('[POWER] Locking workstation...');
-  execFile(TSDISCON_PATH, ['1'], () => {
-    execFile(TSDISCON_PATH, ['console'], () => {
-      execFile(RUNDLL32_PATH, ['user32.dll,LockWorkStation']);
-    });
+  exec('for /f "tokens=3" %i in (\'query session ^| findstr /i "console"\') do tsdiscon %i', (err) => {
+    if (err) {
+      execFile(TSDISCON_PATH, ['1'], () => {
+        execFile(RUNDLL32_PATH, ['user32.dll,LockWorkStation']);
+      });
+    }
   });
 }
 
@@ -368,6 +370,17 @@ function connectRelayWs() {
             else if (sub === 'shutdown') executeShutdown();
             else if (sub === 'lock') executeLock();
             else if (sub === 'unlock') executeUnlock();
+
+            if (relayWs && relayWs.readyState === WebSocket.OPEN) {
+              relayWs.send(JSON.stringify({
+                type: 'ACTION_RESPONSE',
+                action: 'POWER',
+                subAction: sub,
+                reqId: msg.reqId,
+                success: true,
+                message: `${(sub || 'Power').toUpperCase()} executed successfully on PC!`
+              }));
+            }
           } else if (msg.action === 'UNLOCK') {
             executeUnlock();
           } else if (msg.action === 'TERMINAL') {

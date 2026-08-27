@@ -36,7 +36,7 @@ import {
   RelayManager 
 } from './utils/api';
 
-const APP_VERSION = 'v3.3.8';
+const APP_VERSION = 'v3.3.9';
 
 export default function App() {
   const [settings, setSettings] = useState(() => getStoredSettings());
@@ -713,8 +713,8 @@ export default function App() {
       <TerminalModal
         isOpen={isTerminalOpen}
         onClose={() => setIsTerminalOpen(false)}
-        agentUrl={settings.agentUrl}
-        agentKey={settings.agentKey}
+        settings={settings}
+        relayManager={relayManagerRef.current}
         isAgentOnline={isPcOnline}
       />
 

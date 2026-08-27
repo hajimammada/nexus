@@ -1,8 +1,8 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Terminal, Play, Trash2, Copy, Check, X, ShieldAlert, Cpu, HardDrive, Wifi, Sparkles, RefreshCw, CornerDownLeft } from 'lucide-react';
 import { executeTerminalCommand } from '../utils/api';
 
-export default function TerminalModal({ isOpen, onClose, agentUrl, agentKey, isAgentOnline }) {
+export default function TerminalModal({ isOpen, onClose, settings, relayManager, isAgentOnline }) {
   const [command, setCommand] = useState('');
   const [history, setHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -10,7 +10,7 @@ export default function TerminalModal({ isOpen, onClose, agentUrl, agentKey, isA
     {
       id: 'welcome',
       command: '# Welcome to Nexus Remote PowerShell Console',
-      output: 'Ready to execute administrative commands via secure Cloudflare Tunnel.',
+      output: 'Ready to execute administrative commands on PC via Cloudflare Relay.',
       error: '',
       exitCode: 0,
       timestamp: new Date().toLocaleTimeString(),
@@ -22,6 +22,7 @@ export default function TerminalModal({ isOpen, onClose, agentUrl, agentKey, isA
 
   const outputEndRef = useRef(null);
   const inputRef = useRef(null);
+  const currentRunningLogId = useRef(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -32,6 +33,34 @@ export default function TerminalModal({ isOpen, onClose, agentUrl, agentKey, isA
   useEffect(() => {
     outputEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [commandLog, isRunning]);
+
+  // Hook terminal results from WebSocket relay
+  useEffect(() => {
+    if (relayManager) {
+      const originalHandler = relayManager.onTerminalResult;
+      relayManager.onTerminalResult = (result) => {
+        const logId = currentRunningLogId.current;
+        if (logId) {
+          setCommandLog(prev =>
+            prev.map(item =>
+              item.id === logId
+                ? {
+                    ...item,
+                    output: result?.output || '',
+                    error: result?.error || '',
+                    exitCode: result?.exitCode ?? 0,
+                    durationMs: result?.durationMs || 0,
+                    running: false
+                  }
+                : item
+            )
+          );
+          setIsRunning(false);
+        }
+        if (typeof originalHandler === 'function') originalHandler(result);
+      };
+    }
+  }, [relayManager]);
 
   if (!isOpen) return null;
 
@@ -79,6 +108,8 @@ export default function TerminalModal({ isOpen, onClose, agentUrl, agentKey, isA
     setHistoryIndex(-1);
 
     const logId = Date.now().toString();
+    currentRunningLogId.current = logId;
+
     const newEntry = {
       id: logId,
       command: targetCmd,
@@ -93,21 +124,24 @@ export default function TerminalModal({ isOpen, onClose, agentUrl, agentKey, isA
     setCommandLog(prev => [...prev, newEntry]);
 
     try {
-      const res = await executeTerminalCommand(agentUrl, agentKey, targetCmd);
-      setCommandLog(prev =>
-        prev.map(item =>
-          item.id === logId
-            ? {
-                ...item,
-                output: res.output || '',
-                error: res.error || '',
-                exitCode: res.exitCode,
-                durationMs: res.durationMs || 0,
-                running: false
-              }
-            : item
-        )
-      );
+      const res = await executeTerminalCommand(targetCmd, settings || {}, relayManager);
+      if (res && res.output !== undefined) {
+        setCommandLog(prev =>
+          prev.map(item =>
+            item.id === logId
+              ? {
+                  ...item,
+                  output: res.output || '',
+                  error: res.error || '',
+                  exitCode: res.exitCode,
+                  durationMs: res.durationMs || 0,
+                  running: false
+                }
+              : item
+          )
+        );
+        setIsRunning(false);
+      }
     } catch (err) {
       setCommandLog(prev =>
         prev.map(item =>
@@ -121,8 +155,8 @@ export default function TerminalModal({ isOpen, onClose, agentUrl, agentKey, isA
             : item
         )
       );
-    } finally {
       setIsRunning(false);
+    } finally {
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   };
