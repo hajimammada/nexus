@@ -172,7 +172,7 @@ export async function handleRequest(request, env) {
     return new Response(JSON.stringify({ success: true, online: true, isOnline: true, hostname: 'hajimaPC' }), { headers: corsHeaders });
   }
 
-  // 5. POST /api/command/dispatch (Send command from Dashboard to PC via Dual Channel)
+  // 5. POST /api/command/dispatch (Send command from Dashboard to Android Satellite Gateway / PC)
   if (url.pathname === '/api/command/dispatch' && request.method === 'POST') {
     try {
       const body = await request.json();
@@ -181,38 +181,49 @@ export async function handleRequest(request, env) {
 
       const cmdObj = { type: 'EXECUTE', action, subAction, payload, reqId, timestamp: Date.now() };
 
-      // 1. Send via WebSocket if agent is connected to this isolate
+      // 1. Send via WebSocket if satellite or agent is connected to this isolate
       const pair = activePairings.get(code);
       if (pair && pair.roomId && activeRooms.has(pair.roomId)) {
         const room = activeRooms.get(pair.roomId);
+        for (const s of room.satellites) {
+          try { s.send(JSON.stringify(cmdObj)); } catch (e) {}
+        }
         for (const a of room.agents) {
           try { a.send(JSON.stringify(cmdObj)); } catch (e) {}
         }
       }
 
-      // 2. Queue into pendingCommands for HTTP retrieval
+      // 2. Queue into pendingCommands for HTTP retrieval by Android Satellite
       if (!pendingCommands.has(code)) pendingCommands.set(code, []);
       pendingCommands.get(code).push(cmdObj);
 
-      return new Response(JSON.stringify({ success: true, reqId, message: 'Command dispatched across edge relay.' }), { headers: corsHeaders });
+      return new Response(JSON.stringify({ success: true, reqId, message: 'Command dispatched to Android Satellite Gateway.' }), { headers: corsHeaders });
     } catch (err) {
       return new Response(JSON.stringify({ success: false, error: err.message }), { status: 400, headers: corsHeaders });
     }
   }
 
-  // 6. POST /api/command/result (PC Agent posts execution result)
+  // 5b. GET /api/command/pending?code=... (Android Satellite polls for queued commands)
+  if (url.pathname === '/api/command/pending' && request.method === 'GET') {
+    const code = (url.searchParams.get('code') || '').trim();
+    const queue = pendingCommands.get(code) || [];
+    pendingCommands.set(code, []);
+    return new Response(JSON.stringify({ success: true, commands: queue }), { headers: corsHeaders });
+  }
+
+  // 6. POST /api/command/result (Android Satellite or PC Agent posts execution result)
   if (url.pathname === '/api/command/result' && request.method === 'POST') {
     try {
       const body = await request.json();
-      const { reqId, result, pairCode } = body;
-      if (reqId) commandResults.set(reqId, { result, timestamp: Date.now() });
+      const { reqId, result, pairCode, success = true, message = '' } = body;
+      if (reqId) commandResults.set(reqId, { result, success, message, timestamp: Date.now() });
 
       // Forward to any connected WebSocket clients
       const pair = activePairings.get(pairCode);
       if (pair && pair.roomId && activeRooms.has(pair.roomId)) {
         const room = activeRooms.get(pair.roomId);
         for (const c of room.clients) {
-          try { c.send(JSON.stringify({ type: 'TERMINAL_RESULT', reqId, result })); } catch (e) {}
+          try { c.send(JSON.stringify({ type: 'ACTION_RESPONSE', reqId, success, message, result })); } catch (e) {}
         }
       }
 
@@ -222,12 +233,12 @@ export async function handleRequest(request, env) {
     }
   }
 
-  // 7. GET /api/command/result?reqId=... (Dashboard retrieves terminal result)
+  // 7. GET /api/command/result?reqId=... (Dashboard retrieves execution result)
   if (url.pathname === '/api/command/result' && request.method === 'GET') {
     const reqId = url.searchParams.get('reqId');
     if (commandResults.has(reqId)) {
       const resData = commandResults.get(reqId);
-      return new Response(JSON.stringify({ success: true, result: resData.result }), { headers: corsHeaders });
+      return new Response(JSON.stringify({ success: true, result: resData.result, message: resData.message, isSuccess: resData.success }), { headers: corsHeaders });
     }
     return new Response(JSON.stringify({ success: false, pending: true }), { headers: corsHeaders });
   }

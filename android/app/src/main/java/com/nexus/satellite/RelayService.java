@@ -14,9 +14,18 @@ import android.os.IBinder;
 import android.os.PowerManager;
 import android.util.Log;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -33,7 +42,9 @@ public class RelayService extends Service {
     private PowerManager.WakeLock wakeLock;
     private WifiManager.WifiLock wifiLock;
     private WebSocket webSocket;
-    private final java.util.concurrent.atomic.AtomicBoolean isReconnecting = new java.util.concurrent.atomic.AtomicBoolean(false);
+    private final AtomicBoolean isReconnecting = new AtomicBoolean(false);
+    private ScheduledExecutorService syncScheduler;
+
     private final OkHttpClient client = new OkHttpClient.Builder()
             .pingInterval(15, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -70,6 +81,7 @@ public class RelayService extends Service {
         super.onCreate();
         createNotificationChannel();
         acquireLocks();
+        startDualChannelSync();
     }
 
     @Override
@@ -127,7 +139,7 @@ public class RelayService extends Service {
             public void onOpen(WebSocket ws, Response response) {
                 isReconnecting.set(false);
                 Log.i(TAG, "Connected to Cloud Relay Room: " + roomId);
-                updateNotification("Active 24/7 Home Relay • Ready for WOL");
+                updateNotification("Active 24/7 Home Gateway • Ready for Commands");
 
                 try {
                     JSONObject initMsg = new JSONObject();
@@ -145,81 +157,10 @@ public class RelayService extends Service {
             public void onMessage(WebSocket ws, String text) {
                 try {
                     JSONObject json = new JSONObject(text);
-                    Log.i(TAG, "Received message: " + text);
+                    Log.i(TAG, "Received WebSocket Command: " + text);
 
                     if ("EXECUTE".equals(json.optString("type"))) {
-                        String action = json.optString("action");
-                        String subAction = json.optString("subAction", "");
-                        SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
-                        final String agentKey = prefs.getString("agentKey", "");
-                        final String currentIp = (targetIp != null && !targetIp.isEmpty()) ? targetIp : prefs.getString("targetIp", "192.168.100.50");
-                        final String currentMac = (targetMac != null && !targetMac.isEmpty()) ? targetMac : prefs.getString("targetMac", "74:56:3C:48:E0:7F");
-
-                        if ("WAKE".equals(action)) {
-                            Log.i(TAG, "Executing Wake-on-LAN for " + currentMac);
-                            boolean success = WolManager.sendWakeOnLan(RelayService.this, currentMac);
-                            JSONObject resp = new JSONObject();
-                            resp.put("type", "ACTION_RESPONSE");
-                            resp.put("action", "WAKE");
-                            resp.put("success", success);
-                            resp.put("message", success ? "Magic packet broadcasted on Wi-Fi" : "Failed to send packet");
-                            ws.send(resp.toString());
-                        } else if ("UNLOCK".equals(action)) {
-                            Log.i(TAG, "Executing Unlock for " + currentIp);
-                            boolean success = SshUnlockManager.triggerUnlock(currentIp, 22);
-                            JSONObject resp = new JSONObject();
-                            resp.put("type", "ACTION_RESPONSE");
-                            resp.put("action", "UNLOCK");
-                            resp.put("success", success);
-                            resp.put("message", success ? "Unlock command sent to PC" : "Failed to trigger unlock");
-                            ws.send(resp.toString());
-                        } else if ("POWER".equals(action) || "LOCK".equals(action) || "SLEEP".equals(action) || "RESTART".equals(action)) {
-                            String endpoint = "/api/power/lock";
-                            if ("SLEEP".equalsIgnoreCase(subAction) || "SLEEP".equalsIgnoreCase(action)) endpoint = "/api/power/sleep";
-                            else if ("RESTART".equalsIgnoreCase(subAction) || "RESTART".equalsIgnoreCase(action)) endpoint = "/api/power/restart";
-                            else if ("UNLOCK".equalsIgnoreCase(subAction) || "UNLOCK".equalsIgnoreCase(action)) endpoint = "/api/power/unlock";
-
-                            final String finalEndpoint = endpoint;
-                            new Thread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    try {
-                                        java.net.URL u = new java.net.URL("http://" + currentIp + ":48880" + finalEndpoint);
-                                        java.net.HttpURLConnection conn = (java.net.HttpURLConnection) u.openConnection();
-                                        conn.setRequestMethod("POST");
-                                        conn.setConnectTimeout(4000);
-                                        conn.setReadTimeout(4000);
-                                        conn.setRequestProperty("Content-Type", "application/json");
-                                        if (agentKey != null && !agentKey.isEmpty()) {
-                                            conn.setRequestProperty("Authorization", "Bearer " + agentKey);
-                                            conn.setRequestProperty("x-agent-key", agentKey);
-                                        }
-                                        conn.setDoOutput(true);
-                                        int code = conn.getResponseCode();
-                                        conn.disconnect();
-                                        Log.i(TAG, "Power dispatch " + finalEndpoint + " returned " + code);
-
-                                        JSONObject resp = new JSONObject();
-                                        resp.put("type", "ACTION_RESPONSE");
-                                        resp.put("action", action);
-                                        resp.put("subAction", subAction);
-                                        resp.put("success", code >= 200 && code < 300);
-                                        resp.put("message", (code >= 200 && code < 300) ? (finalEndpoint.replace("/api/power/", "").toUpperCase() + " executed via Satellite Gateway") : ("HTTP " + code));
-                                        ws.send(resp.toString());
-                                    } catch (Exception e) {
-                                        Log.w(TAG, "Power dispatch error: " + e.getMessage());
-                                        try {
-                                            JSONObject resp = new JSONObject();
-                                            resp.put("type", "ACTION_RESPONSE");
-                                            resp.put("action", action);
-                                            resp.put("success", false);
-                                            resp.put("message", "Satellite Gateway error: " + e.getMessage());
-                                            ws.send(resp.toString());
-                                        } catch (Exception ignored) {}
-                                    }
-                                }
-                            }).start();
-                        }
+                        executeIncomingCommand(json);
                     }
                 } catch (Exception e) {
                     Log.e(TAG, "Error handling message: " + e.getMessage());
@@ -253,6 +194,259 @@ public class RelayService extends Service {
                 }
             }).start();
         }
+    }
+
+    // -------------------------------------------------------------
+    // Dual-Channel Sync Engine (Long Polling & Telemetry Ingestion)
+    // -------------------------------------------------------------
+    private void startDualChannelSync() {
+        if (syncScheduler != null && !syncScheduler.isShutdown()) return;
+        syncScheduler = Executors.newSingleThreadScheduledExecutor();
+        syncScheduler.scheduleWithFixedDelay(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    pollAndSync();
+                } catch (Exception e) {
+                    Log.w(TAG, "Sync loop error: " + e.getMessage());
+                }
+            }
+        }, 1, 2, TimeUnit.SECONDS);
+    }
+
+    private void pollAndSync() {
+        SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
+        String pairCode = prefs.getString("roomId", "163860");
+        if (pairCode.contains("_")) {
+            String[] parts = pairCode.split("_");
+            if (parts.length > 1) pairCode = parts[1];
+        }
+        final String currentCode = pairCode;
+        final String currentIp = prefs.getString("targetIp", "192.168.100.50");
+        final String currentMac = prefs.getString("targetMac", "74:56:3C:48:E0:7F");
+        final String agentKey = prefs.getString("agentKey", "");
+        final String hostname = prefs.getString("hostname", "hajimaPC");
+
+        // 1. Fetch live telemetry from PC Agent (if online)
+        JSONObject telemetryObj = null;
+        try {
+            URL pcUrl = new URL("http://" + currentIp + ":48880/api/status");
+            HttpURLConnection pcConn = (HttpURLConnection) pcUrl.openConnection();
+            pcConn.setConnectTimeout(1500);
+            pcConn.setReadTimeout(1500);
+            if (agentKey != null && !agentKey.isEmpty()) {
+                pcConn.setRequestProperty("Authorization", "Bearer " + agentKey);
+                pcConn.setRequestProperty("x-agent-key", agentKey);
+            }
+            if (pcConn.getResponseCode() == 200) {
+                BufferedReader br = new BufferedReader(new InputStreamReader(pcConn.getInputStream()));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = br.readLine()) != null) sb.append(line);
+                br.close();
+                JSONObject fullJson = new JSONObject(sb.toString());
+                telemetryObj = fullJson.optJSONObject("data");
+            }
+            pcConn.disconnect();
+        } catch (Exception ignored) {}
+
+        // 2. Register Satellite state & Telemetry to Cloud Relay
+        try {
+            URL regUrl = new URL(relayUrl + "/api/pair/register");
+            HttpURLConnection regConn = (HttpURLConnection) regUrl.openConnection();
+            regConn.setRequestMethod("POST");
+            regConn.setConnectTimeout(3000);
+            regConn.setReadTimeout(3000);
+            regConn.setRequestProperty("Content-Type", "application/json");
+            regConn.setDoOutput(true);
+
+            JSONObject regBody = new JSONObject();
+            regBody.put("pairCode", currentCode);
+            regBody.put("roomId", "room_" + currentCode + "_pc");
+            regBody.put("token", "token_" + currentCode);
+            regBody.put("mac", currentMac);
+            regBody.put("localIp", currentIp);
+            regBody.put("hostname", hostname);
+            regBody.put("agentKey", agentKey);
+            if (telemetryObj != null) regBody.put("telemetry", telemetryObj);
+
+            OutputStream os = regConn.getOutputStream();
+            os.write(regBody.toString().getBytes("UTF-8"));
+            os.close();
+
+            if (regConn.getResponseCode() == 200) {
+                BufferedReader br = new BufferedReader(new InputStreamReader(regConn.getInputStream()));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = br.readLine()) != null) sb.append(line);
+                br.close();
+
+                JSONObject resp = new JSONObject(sb.toString());
+                JSONArray commands = resp.optJSONArray("commands");
+                if (commands != null && commands.length() > 0) {
+                    for (int i = 0; i < commands.length(); i++) {
+                        executeIncomingCommand(commands.getJSONObject(i));
+                    }
+                }
+            }
+            regConn.disconnect();
+        } catch (Exception e) {
+            Log.w(TAG, "Heartbeat register error: " + e.getMessage());
+        }
+    }
+
+    // -------------------------------------------------------------
+    // Universal Command Execution Engine (WOL, Unlock, Power, Terminal)
+    // -------------------------------------------------------------
+    private void executeIncomingCommand(final JSONObject json) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    String action = json.optString("action", "").toUpperCase();
+                    String subAction = json.optString("subAction", "").toLowerCase();
+                    JSONObject payload = json.optJSONObject("payload");
+                    if (payload == null) payload = new JSONObject();
+                    String reqId = json.optString("reqId", String.valueOf(System.currentTimeMillis()));
+
+                    SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
+                    String pairCode = prefs.getString("roomId", "163860");
+                    if (pairCode.contains("_")) {
+                        String[] parts = pairCode.split("_");
+                        if (parts.length > 1) pairCode = parts[1];
+                    }
+                    String currentIp = prefs.getString("targetIp", "192.168.100.50");
+                    String currentMac = prefs.getString("targetMac", "74:56:3C:48:E0:7F");
+                    String agentKey = prefs.getString("agentKey", "");
+
+                    boolean success = false;
+                    String message = "";
+                    String resultPayload = "";
+
+                    Log.i(TAG, "🚀 EXECUTING MASTER GATEWAY ACTION: " + action + " (subAction: " + subAction + ", reqId: " + reqId + ")");
+
+                    if ("WAKE".equals(action) || "TURN ON".equals(action)) {
+                        success = WolManager.sendWakeOnLan(RelayService.this, currentMac);
+                        message = success ? "Wake-on-LAN magic packet broadcasted on Wi-Fi" : "Failed to broadcast WOL packet";
+                    } else if ("UNLOCK".equals(action)) {
+                        success = SshUnlockManager.triggerUnlock(currentIp, 22);
+                        message = success ? "Unlock signal dispatched to PC" : "Could not reach PC unlock endpoint";
+                    } else if ("TERMINAL".equals(action)) {
+                        String cmd = payload.optString("command", "");
+                        String cwd = payload.optString("cwd", "");
+                        try {
+                            URL u = new URL("http://" + currentIp + ":48880/api/terminal/exec");
+                            HttpURLConnection conn = (HttpURLConnection) u.openConnection();
+                            conn.setRequestMethod("POST");
+                            conn.setConnectTimeout(6000);
+                            conn.setReadTimeout(12000);
+                            conn.setRequestProperty("Content-Type", "application/json");
+                            if (agentKey != null && !agentKey.isEmpty()) {
+                                conn.setRequestProperty("Authorization", "Bearer " + agentKey);
+                                conn.setRequestProperty("x-agent-key", agentKey);
+                            }
+                            conn.setDoOutput(true);
+                            JSONObject termReq = new JSONObject();
+                            termReq.put("command", cmd);
+                            if (!cwd.isEmpty()) termReq.put("cwd", cwd);
+
+                            OutputStream os = conn.getOutputStream();
+                            os.write(termReq.toString().getBytes("UTF-8"));
+                            os.close();
+
+                            int code = conn.getResponseCode();
+                            if (code == 200) {
+                                BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                                StringBuilder sb = new StringBuilder();
+                                String line;
+                                while ((line = br.readLine()) != null) sb.append(line).append("\n");
+                                br.close();
+                                resultPayload = sb.toString();
+                                success = true;
+                                message = "Command executed.";
+                            } else {
+                                message = "Terminal returned HTTP " + code;
+                            }
+                            conn.disconnect();
+                        } catch (Exception e) {
+                            message = "Terminal execution error: " + e.getMessage();
+                        }
+                    } else {
+                        // Power Actions: LOCK, SLEEP, RESTART, SHUTDOWN
+                        String endpoint = "/api/power/lock";
+                        String act = subAction.isEmpty() ? action.toLowerCase() : subAction;
+                        if ("sleep".equalsIgnoreCase(act)) endpoint = "/api/power/sleep";
+                        else if ("restart".equalsIgnoreCase(act)) endpoint = "/api/power/restart";
+                        else if ("shutdown".equalsIgnoreCase(act)) endpoint = "/api/power/shutdown";
+                        else if ("unlock".equalsIgnoreCase(act)) endpoint = "/api/power/unlock";
+
+                        try {
+                            URL u = new URL("http://" + currentIp + ":48880" + endpoint);
+                            HttpURLConnection conn = (HttpURLConnection) u.openConnection();
+                            conn.setRequestMethod("POST");
+                            conn.setConnectTimeout(4000);
+                            conn.setReadTimeout(4000);
+                            conn.setRequestProperty("Content-Type", "application/json");
+                            if (agentKey != null && !agentKey.isEmpty()) {
+                                conn.setRequestProperty("Authorization", "Bearer " + agentKey);
+                                conn.setRequestProperty("x-agent-key", agentKey);
+                            }
+                            conn.setDoOutput(true);
+                            conn.getOutputStream().write("{}".getBytes("UTF-8"));
+                            int code = conn.getResponseCode();
+                            conn.disconnect();
+
+                            success = (code >= 200 && code < 300);
+                            message = success ? (act.toUpperCase() + " executed via Satellite Gateway") : ("HTTP " + code);
+                        } catch (Exception e) {
+                            message = "Satellite dispatch error: " + e.getMessage();
+                        }
+                    }
+
+                    // 1. Send WebSocket ACK
+                    if (webSocket != null) {
+                        try {
+                            JSONObject ack = new JSONObject();
+                            ack.put("type", "ACTION_RESPONSE");
+                            ack.put("reqId", reqId);
+                            ack.put("action", action);
+                            ack.put("subAction", subAction);
+                            ack.put("success", success);
+                            ack.put("message", message);
+                            if (!resultPayload.isEmpty()) ack.put("result", resultPayload);
+                            webSocket.send(ack.toString());
+                        } catch (Exception ignored) {}
+                    }
+
+                    // 2. Send HTTP Result to Cloud Relay
+                    try {
+                        URL resUrl = new URL(relayUrl + "/api/command/result");
+                        HttpURLConnection resConn = (HttpURLConnection) resUrl.openConnection();
+                        resConn.setRequestMethod("POST");
+                        resConn.setConnectTimeout(3000);
+                        resConn.setReadTimeout(3000);
+                        resConn.setRequestProperty("Content-Type", "application/json");
+                        resConn.setDoOutput(true);
+
+                        JSONObject resBody = new JSONObject();
+                        resBody.put("reqId", reqId);
+                        resBody.put("pairCode", pairCode);
+                        resBody.put("success", success);
+                        resBody.put("message", message);
+                        if (!resultPayload.isEmpty()) resBody.put("result", resultPayload);
+
+                        OutputStream os = resConn.getOutputStream();
+                        os.write(resBody.toString().getBytes("UTF-8"));
+                        os.close();
+                        resConn.getResponseCode();
+                        resConn.disconnect();
+                    } catch (Exception ignored) {}
+
+                } catch (Exception e) {
+                    Log.e(TAG, "Error in executeIncomingCommand: " + e.getMessage());
+                }
+            }
+        }).start();
     }
 
     private void createNotificationChannel() {
@@ -291,24 +485,24 @@ public class RelayService extends Service {
                     .setContentText(statusText)
                     .setSmallIcon(android.R.drawable.ic_dialog_info)
                     .setContentIntent(pendingIntent)
-                    .setOngoing(true)
                     .build();
         }
     }
 
     private void updateNotification(String statusText) {
-        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (manager != null) {
-            manager.notify(NOTIFICATION_ID, buildNotification(statusText));
-        }
+        try {
+            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (manager != null) {
+                manager.notify(NOTIFICATION_ID, buildNotification(statusText));
+            }
+        } catch (Exception ignored) {}
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
-        if (webSocket != null) {
-            webSocket.close(1000, "Service destroyed");
-        }
+        if (syncScheduler != null) syncScheduler.shutdownNow();
+        if (webSocket != null) webSocket.close(1000, "Service stopped");
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();
     }

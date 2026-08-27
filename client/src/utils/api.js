@@ -211,20 +211,21 @@ export class RelayManager {
 // -------------------------------------------------------------
 export async function executePowerAction(action, settings, relayManager = null, options = {}) {
   const pairCode = settings.pairCode || (settings.roomId ? settings.roomId.split('_')[1] : null);
+  const reqId = Date.now().toString() + Math.random().toString(36).slice(2);
+  const actUpper = action.toUpperCase();
 
   // 1. WebSocket Relay Dispatch
   if (relayManager && relayManager.isConnected) {
-    const actUpper = action.toUpperCase();
     if (actUpper === 'WAKE' || actUpper === 'TURN ON') {
-      relayManager.sendCommand('WAKE', null, { targetMac: settings.targetMac });
+      relayManager.sendCommand('WAKE', null, { targetMac: settings.targetMac, reqId });
     } else if (actUpper === 'UNLOCK') {
-      relayManager.sendCommand('UNLOCK', null, { targetIp: settings.targetIp });
+      relayManager.sendCommand('UNLOCK', null, { targetIp: settings.targetIp, reqId });
     } else {
-      relayManager.sendCommand('POWER', action.toLowerCase(), options);
+      relayManager.sendCommand('POWER', action.toLowerCase(), { ...options, reqId });
     }
   }
 
-  // 2. Edge HTTP Dispatch (Dual-Channel Relay)
+  // 2. Edge HTTP Dispatch (Dual-Channel Relay to Android Satellite)
   if (pairCode) {
     try {
       const baseUrl = settings.relayUrl || 'https://nexus.hajimammad.com';
@@ -233,11 +234,28 @@ export async function executePowerAction(action, settings, relayManager = null, 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           pairCode, 
-          action: action.toUpperCase() === 'WAKE' ? 'WAKE' : (action.toUpperCase() === 'UNLOCK' ? 'UNLOCK' : 'POWER'), 
+          action: (actUpper === 'WAKE' || actUpper === 'TURN ON') ? 'WAKE' : (actUpper === 'UNLOCK' ? 'UNLOCK' : 'POWER'), 
           subAction: action.toLowerCase(), 
-          payload: { ...options, targetMac: settings.targetMac, targetIp: settings.targetIp } 
+          payload: { ...options, targetMac: settings.targetMac, targetIp: settings.targetIp },
+          reqId
         })
       });
+
+      // Poll for verified execution ACK from Android Satellite Gateway (up to 4s)
+      for (let i = 0; i < 8; i++) {
+        await new Promise(r => setTimeout(r, 450));
+        try {
+          const pollRes = await fetch(`${baseUrl}/api/command/result?reqId=${reqId}`);
+          if (pollRes.ok) {
+            const pollData = await pollRes.json();
+            if (pollData.success && pollData.message) {
+              return { success: true, message: `✅ ${pollData.message}` };
+            }
+          }
+        } catch (e) {}
+      }
+
+      return { success: true, message: `📡 ${action.toUpperCase()} dispatched to Home Satellite Gateway!` };
     } catch (e) {}
   }
 
@@ -257,7 +275,7 @@ export async function executePowerAction(action, settings, relayManager = null, 
     return data;
   }
 
-  return { success: true, message: `${action.toUpperCase()} command dispatched to PC!` };
+  return { success: true, message: `📡 ${action.toUpperCase()} dispatched to Home Satellite Gateway!` };
 }
 
 // -------------------------------------------------------------
