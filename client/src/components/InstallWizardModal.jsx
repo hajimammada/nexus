@@ -160,76 +160,79 @@ export default function InstallWizardModal({ isOpen, onClose }) {
           </div>
         )}
 
-        {/* TAB 2: UNIVERSAL HOME SATELLITE */}
+        {/* TAB 2: UNIVERSAL HOME SATELLITE (ANDROID APP & SERVER) */}
         {activeTab === 'satellite' && (
           <div className="space-y-6 animate-fadeIn">
             
-            {/* Explainer Banner */}
-            <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-3">
-              <Radio className="w-5 h-5 shrink-0" />
-              <span>
-                <strong>What is the Home Satellite?</strong> An ultra-lightweight Node.js service that runs 24/7 on your home Wi-Fi (old Android phone with Termux, old laptop, or Linux box) to turn on & unlock your PC from anywhere.
-              </span>
-            </div>
+            {/* Primary Action Card: Download Android APK */}
+            <div className="p-5 rounded-2xl bg-gradient-to-br from-[#122620] to-[#0e1c18] border border-emerald-500/40 shadow-xl">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                      Recommended • 0 3rd Party Apps
+                    </span>
+                  </div>
+                  <h3 className="font-bold text-white text-base mt-1.5 flex items-center gap-2">
+                    <Smartphone className="w-5 h-5 text-emerald-400" />
+                    <span>Download Native Android App (.apk)</span>
+                  </h3>
+                  <p className="text-xs text-slate-300 mt-1">
+                    Lightweight standalone APK with native WakeLock. Install on any old phone on home Wi-Fi.
+                  </p>
+                </div>
 
-            {/* Android Termux 1-Liner */}
-            <div>
-              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
-                <span>Android Phone (Termux app) — 1 Command:</span>
-                <span className="text-[10px] text-emerald-400 lowercase">Zero 3rd party apps needed</span>
-              </label>
-              <div className="flex items-center justify-between p-3 rounded-xl bg-[#070a12] border border-slate-800 text-xs font-mono text-emerald-300">
-                <span className="truncate mr-3">{satelliteBashCmd}</span>
-                <button
-                  onClick={() => copyToClipboard(satelliteBashCmd, 'sat')}
-                  className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors shrink-0 cursor-pointer"
-                  title="Copy command"
+                <a
+                  href="/download/nexus-satellite.apk"
+                  download="nexus-satellite.apk"
+                  className="py-3.5 px-6 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs tracking-wide shadow-lg shadow-emerald-500/30 transition-all shrink-0 flex items-center gap-2 cursor-pointer"
                 >
-                  {copiedCmd === 'sat' ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                </button>
+                  <Download className="w-4 h-4" />
+                  <span>DOWNLOAD APK</span>
+                </a>
               </div>
             </div>
 
-            {/* Download Standalone Satellite Package */}
-            <div className="p-5 rounded-2xl bg-[#12192b] border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            {/* 3 Step Visual Guide for Android App */}
+            <div className="space-y-3 pt-1">
+              <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">How to Setup on Android Phone:</h4>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="p-3.5 rounded-xl bg-[#0f1524] border border-slate-800">
+                  <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-[10px] mb-2">1</span>
+                  <p className="font-bold text-white">Install APK</p>
+                  <p className="text-slate-400 mt-1 text-[11px]">Install on old phone connected to home Wi-Fi.</p>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-[#0f1524] border border-slate-800">
+                  <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-[10px] mb-2">2</span>
+                  <p className="font-bold text-white">Enter 6-Digit PIN</p>
+                  <p className="text-slate-400 mt-1 text-[11px]">Type PIN from your PC setup screen.</p>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-[#0f1524] border border-slate-800">
+                  <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-[10px] mb-2">3</span>
+                  <p className="font-bold text-white">Start 24/7 Relay</p>
+                  <p className="text-slate-400 mt-1 text-[11px]">Tap start — relay stays active in background!</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Alternative: Download Server Relay Package (for Linux / Windows Server) */}
+            <div className="p-4 rounded-2xl bg-[#0f1524] border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div>
-                <h3 className="font-bold text-white text-sm">Download Satellite Package (.zip)</h3>
-                <p className="text-xs text-slate-400 mt-1">For Windows, Mac, or Linux servers (includes <code className="text-cyan-300">start-satellite.bat</code>).</p>
+                <h4 className="font-bold text-white text-xs">Using a Linux / Mac / Server instead of a phone?</h4>
+                <p className="text-[11px] text-slate-400 mt-0.5">Download standalone Node.js Home Relay package.</p>
               </div>
 
               <a
                 href="/download/nexus-satellite.zip"
                 download="nexus-satellite.zip"
-                className="py-3 px-5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs tracking-wide shadow-lg shadow-emerald-500/20 transition-all shrink-0 flex items-center gap-2 cursor-pointer"
+                className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs tracking-wide transition-all shrink-0 flex items-center gap-1.5 cursor-pointer border border-slate-700"
               >
-                <Download className="w-4 h-4" />
-                <span>DOWNLOAD SATELLITE .ZIP</span>
+                <Download className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Download Server .zip</span>
               </a>
-            </div>
-
-            {/* 3 Step Pairing Guide */}
-            <div className="space-y-3 pt-2">
-              <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">How to Link Home Satellite:</h4>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div className="p-3.5 rounded-xl bg-[#0f1524] border border-slate-800">
-                  <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-[10px] mb-2">1</span>
-                  <p className="font-bold text-white">Start on Wi-Fi</p>
-                  <p className="text-slate-400 mt-1 text-[11px]">Run script on your old phone or server on home Wi-Fi.</p>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-[#0f1524] border border-slate-800">
-                  <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-[10px] mb-2">2</span>
-                  <p className="font-bold text-white">Open Port 5050</p>
-                  <p className="text-slate-400 mt-1 text-[11px]">Open <code className="text-emerald-300">http://&lt;ip&gt;:5050</code> in browser.</p>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-[#0f1524] border border-slate-800">
-                  <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-[10px] mb-2">3</span>
-                  <p className="font-bold text-white">Enter 6-Digit PIN</p>
-                  <p className="text-slate-400 mt-1 text-[11px]">Type your PC PIN and tap Connect & Pair.</p>
-                </div>
-              </div>
             </div>
 
           </div>
