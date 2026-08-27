@@ -13,7 +13,7 @@ pc_zip_dist = os.path.join(dist_dl, "nexus-pc-agent.zip")
 
 print("Packaging nexus-pc-agent.zip from latest source files...")
 with zipfile.ZipFile(pc_zip_pub, "w", zipfile.ZIP_DEFLATED) as z:
-    for f in ["Setup.exe", "install.bat", "register-task.ps1", "README.md"]:
+    for f in ["Setup.exe", "install.bat", "register-task.ps1", "uninstall.bat", "uninstall.ps1", "reset-pin.bat", "reset-pin.ps1", "README.md"]:
         p = os.path.join(root_dir, f)
         if os.path.exists(p):
             z.write(p, f)
