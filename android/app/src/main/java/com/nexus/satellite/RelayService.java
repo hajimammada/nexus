@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.IBinder;
@@ -148,9 +149,15 @@ public class RelayService extends Service {
 
                     if ("EXECUTE".equals(json.optString("type"))) {
                         String action = json.optString("action");
+                        String subAction = json.optString("subAction", "");
+                        SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
+                        final String agentKey = prefs.getString("agentKey", "");
+                        final String currentIp = (targetIp != null && !targetIp.isEmpty()) ? targetIp : prefs.getString("targetIp", "192.168.100.50");
+                        final String currentMac = (targetMac != null && !targetMac.isEmpty()) ? targetMac : prefs.getString("targetMac", "74:56:3C:48:E0:7F");
+
                         if ("WAKE".equals(action)) {
-                            Log.i(TAG, "Executing Wake-on-LAN for " + targetMac);
-                            boolean success = WolManager.sendWakeOnLan(RelayService.this, targetMac);
+                            Log.i(TAG, "Executing Wake-on-LAN for " + currentMac);
+                            boolean success = WolManager.sendWakeOnLan(RelayService.this, currentMac);
                             JSONObject resp = new JSONObject();
                             resp.put("type", "ACTION_RESPONSE");
                             resp.put("action", "WAKE");
@@ -158,14 +165,44 @@ public class RelayService extends Service {
                             resp.put("message", success ? "Magic packet broadcasted on Wi-Fi" : "Failed to send packet");
                             ws.send(resp.toString());
                         } else if ("UNLOCK".equals(action)) {
-                            Log.i(TAG, "Executing SSH Unlock for " + targetIp);
-                            boolean success = SshUnlockManager.triggerUnlock(targetIp, 22);
+                            Log.i(TAG, "Executing Unlock for " + currentIp);
+                            boolean success = SshUnlockManager.triggerUnlock(currentIp, 22);
                             JSONObject resp = new JSONObject();
                             resp.put("type", "ACTION_RESPONSE");
                             resp.put("action", "UNLOCK");
                             resp.put("success", success);
-                            resp.put("message", "Unlock signal dispatched to PC");
+                            resp.put("message", success ? "Unlock command sent to PC" : "Failed to trigger unlock");
                             ws.send(resp.toString());
+                        } else if ("POWER".equals(action) || "LOCK".equals(action) || "SLEEP".equals(action) || "RESTART".equals(action)) {
+                            String endpoint = "/api/power/lock";
+                            if ("SLEEP".equalsIgnoreCase(subAction) || "SLEEP".equalsIgnoreCase(action)) endpoint = "/api/power/sleep";
+                            else if ("RESTART".equalsIgnoreCase(subAction) || "RESTART".equalsIgnoreCase(action)) endpoint = "/api/power/restart";
+                            else if ("UNLOCK".equalsIgnoreCase(subAction) || "UNLOCK".equalsIgnoreCase(action)) endpoint = "/api/power/unlock";
+
+                            final String finalEndpoint = endpoint;
+                            new Thread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    try {
+                                        java.net.URL u = new java.net.URL("http://" + currentIp + ":48880" + finalEndpoint);
+                                        java.net.HttpURLConnection conn = (java.net.HttpURLConnection) u.openConnection();
+                                        conn.setRequestMethod("POST");
+                                        conn.setConnectTimeout(4000);
+                                        conn.setReadTimeout(4000);
+                                        conn.setRequestProperty("Content-Type", "application/json");
+                                        if (agentKey != null && !agentKey.isEmpty()) {
+                                            conn.setRequestProperty("Authorization", "Bearer " + agentKey);
+                                            conn.setRequestProperty("x-agent-key", agentKey);
+                                        }
+                                        conn.setDoOutput(true);
+                                        int code = conn.getResponseCode();
+                                        conn.disconnect();
+                                        Log.i(TAG, "Power dispatch " + finalEndpoint + " returned " + code);
+                                    } catch (Exception e) {
+                                        Log.w(TAG, "Power dispatch error: " + e.getMessage());
+                                    }
+                                }
+                            }).start();
                         }
                     }
                 } catch (Exception e) {
