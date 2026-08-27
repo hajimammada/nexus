@@ -1,18 +1,22 @@
 // =========================================================================
-// Nexus Cloud Relay & Multi-Tenant Signaling Hub (Cloudflare Pages Function)
-// Handles:
-// 1. Zero-Configuration 6-Digit Pairing Code Exchange
+// Nexus Cloud Relay & Multi-Tenant Edge Signaling Hub (Cloudflare Pages)
+// Supports:
+// 1. Zero-Configuration 6-Digit Pairing & Telemetry Cache
 // 2. Real-Time WebSocket Rooms (Clients, Satellites, PC Agents)
+// 3. Resilient Dual-Channel HTTP Command Dispatch & Heartbeat Polling
 // =========================================================================
 
-const activePairings = new Map(); // pairCode -> { mac, localIp, hostname, agentKey, roomId, token, createdAt }
-const activeRooms = new Map();    // roomId -> { clients: Set, satellites: Set, agents: Set, config: Object }
+const activePairings = new Map();  // pairCode -> { mac, localIp, hostname, agentKey, roomId, token, telemetry, lastSeen }
+const activeRooms = new Map();     // roomId -> { clients: Set, satellites: Set, agents: Set, config: Object }
+const pendingCommands = new Map(); // pairCode -> Array of pending commands
+const commandResults = new Map();  // reqId -> result
 
-function cleanExpiredPairings() {
+function cleanExpiredData() {
   const now = Date.now();
   for (const [code, data] of activePairings.entries()) {
-    if (now - data.createdAt > 3600 * 1000) {
+    if (now - (data.lastSeen || data.createdAt) > 3600 * 1000) {
       activePairings.delete(code);
+      pendingCommands.delete(code);
     }
   }
 }
@@ -43,13 +47,13 @@ export async function onRequest(context) {
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
   };
 
-  cleanExpiredPairings();
+  cleanExpiredData();
 
-  // 2. POST /api/pair/create or /api/pair/register
+  // 2. POST /api/pair/create or /api/pair/register (PC Agent Heartbeat & Telemetry Ingestion)
   if ((url.pathname === '/api/pair/create' || url.pathname === '/api/pair/register') && request.method === 'POST') {
     try {
       const body = await request.json();
-      const { mac = '', localIp = '', hostname = 'Nexus-PC', agentKey = '', pcName = '', roomId: reqRoomId, token: reqToken } = body;
+      const { mac = '', localIp = '', hostname = 'Nexus-PC', agentKey = '', pcName = '', roomId: reqRoomId, token: reqToken, telemetry = null } = body;
       
       let pairCode = (body.pairCode || '').trim();
       if (!pairCode) {
@@ -62,15 +66,18 @@ export async function onRequest(context) {
       const roomId = reqRoomId || `room_${pairCode}_${Date.now().toString(36)}`;
       const token = reqToken || crypto.randomUUID();
 
+      const existing = activePairings.get(pairCode) || {};
       const pairData = {
         pairCode,
         roomId,
         token,
-        mac,
-        localIp,
-        hostname: pcName || hostname,
-        agentKey,
-        createdAt: Date.now()
+        mac: mac || existing.mac || '',
+        localIp: localIp || existing.localIp || '',
+        hostname: pcName || hostname || existing.hostname || 'Nexus-PC',
+        agentKey: agentKey || existing.agentKey || '',
+        telemetry: telemetry || existing.telemetry || null,
+        createdAt: existing.createdAt || Date.now(),
+        lastSeen: Date.now()
       };
 
       activePairings.set(pairCode, pairData);
@@ -85,11 +92,16 @@ export async function onRequest(context) {
         activeRooms.get(roomId).config = pairData;
       }
 
+      // Check if there are pending commands to deliver directly to the agent in HTTP response
+      const queue = pendingCommands.get(pairCode) || [];
+      pendingCommands.set(pairCode, []);
+
       return new Response(JSON.stringify({
         success: true,
         pairCode,
         roomId,
         token,
+        commands: queue,
         expiresInSeconds: 3600,
         dashboardUrl: `${url.origin}/#pair=${pairCode}`
       }), { headers: corsHeaders });
@@ -98,7 +110,7 @@ export async function onRequest(context) {
     }
   }
 
-  // 3. POST /api/pair/claim
+  // 3. POST /api/pair/claim (Phone or Dashboard pairing)
   if (url.pathname === '/api/pair/claim' && request.method === 'POST') {
     try {
       const body = await request.json();
@@ -118,11 +130,12 @@ export async function onRequest(context) {
           targetMac: data.mac,
           targetIp: data.localIp,
           hostname: data.hostname,
-          agentKey: data.agentKey
+          agentKey: data.agentKey,
+          telemetry: data.telemetry,
+          online: (Date.now() - (data.lastSeen || 0)) < 15000
         }), { headers: corsHeaders });
       }
 
-      // Zero-Config Deterministic Claim Fallback
       return new Response(JSON.stringify({
         success: true,
         pairCode: code,
@@ -131,14 +144,95 @@ export async function onRequest(context) {
         targetMac: '',
         targetIp: '',
         hostname: 'Nexus-PC',
-        agentKey: ''
+        agentKey: '',
+        online: false
       }), { headers: corsHeaders });
     } catch (err) {
       return new Response(JSON.stringify({ success: false, error: err.message }), { status: 400, headers: corsHeaders });
     }
   }
 
-  // 4. WebSocket Relay (/api/relay)
+  // 4. GET /api/pair/status?code=... (Dashboard HTTP Status Polling Fallback)
+  if (url.pathname === '/api/pair/status' && request.method === 'GET') {
+    const code = (url.searchParams.get('code') || '').trim();
+    if (activePairings.has(code)) {
+      const data = activePairings.get(code);
+      const isOnline = (Date.now() - (data.lastSeen || 0)) < 15000;
+      return new Response(JSON.stringify({
+        success: true,
+        online: isOnline,
+        isOnline: isOnline,
+        hostname: data.hostname,
+        targetIp: data.localIp,
+        targetMac: data.mac,
+        telemetry: data.telemetry,
+        lastSeenAgoSeconds: Math.round((Date.now() - (data.lastSeen || 0)) / 1000)
+      }), { headers: corsHeaders });
+    }
+    return new Response(JSON.stringify({ success: false, online: false, isOnline: false }), { headers: corsHeaders });
+  }
+
+  // 5. POST /api/command/dispatch (Send command from Dashboard to PC via Dual Channel)
+  if (url.pathname === '/api/command/dispatch' && request.method === 'POST') {
+    try {
+      const body = await request.json();
+      const { pairCode, action, subAction, payload = {}, reqId = Date.now().toString() } = body;
+      const code = (pairCode || '').trim();
+
+      const cmdObj = { type: 'EXECUTE', action, subAction, payload, reqId, timestamp: Date.now() };
+
+      // 1. Send via WebSocket if agent is connected to this isolate
+      const pair = activePairings.get(code);
+      if (pair && pair.roomId && activeRooms.has(pair.roomId)) {
+        const room = activeRooms.get(pair.roomId);
+        for (const a of room.agents) {
+          try { a.send(JSON.stringify(cmdObj)); } catch (e) {}
+        }
+      }
+
+      // 2. Queue into pendingCommands for HTTP retrieval
+      if (!pendingCommands.has(code)) pendingCommands.set(code, []);
+      pendingCommands.get(code).push(cmdObj);
+
+      return new Response(JSON.stringify({ success: true, reqId, message: 'Command dispatched across edge relay.' }), { headers: corsHeaders });
+    } catch (err) {
+      return new Response(JSON.stringify({ success: false, error: err.message }), { status: 400, headers: corsHeaders });
+    }
+  }
+
+  // 6. POST /api/command/result (PC Agent posts execution result)
+  if (url.pathname === '/api/command/result' && request.method === 'POST') {
+    try {
+      const body = await request.json();
+      const { reqId, result, pairCode } = body;
+      if (reqId) commandResults.set(reqId, { result, timestamp: Date.now() });
+
+      // Forward to any connected WebSocket clients
+      const pair = activePairings.get(pairCode);
+      if (pair && pair.roomId && activeRooms.has(pair.roomId)) {
+        const room = activeRooms.get(pair.roomId);
+        for (const c of room.clients) {
+          try { c.send(JSON.stringify({ type: 'TERMINAL_RESULT', reqId, result })); } catch (e) {}
+        }
+      }
+
+      return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
+    } catch (err) {
+      return new Response(JSON.stringify({ success: false, error: err.message }), { status: 400, headers: corsHeaders });
+    }
+  }
+
+  // 7. GET /api/command/result?reqId=... (Dashboard retrieves terminal result)
+  if (url.pathname === '/api/command/result' && request.method === 'GET') {
+    const reqId = url.searchParams.get('reqId');
+    if (commandResults.has(reqId)) {
+      const resData = commandResults.get(reqId);
+      return new Response(JSON.stringify({ success: true, result: resData.result }), { headers: corsHeaders });
+    }
+    return new Response(JSON.stringify({ success: false, pending: true }), { headers: corsHeaders });
+  }
+
+  // 8. WebSocket Relay (/api/relay)
   if (url.pathname === '/api/relay') {
     const upgradeHeader = request.headers.get('Upgrade');
     if (!upgradeHeader || upgradeHeader.toLowerCase() !== 'websocket') {
@@ -232,5 +326,5 @@ export async function onRequest(context) {
     });
   }
 
-  return new Response(JSON.stringify({ status: 'Nexus API Function Online' }), { headers: corsHeaders });
+  return new Response(JSON.stringify({ status: 'Nexus Cloudflare Relay Online' }), { headers: corsHeaders });
 }

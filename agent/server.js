@@ -301,29 +301,54 @@ async function registerAndConnectRelay() {
 
     connectRelayWs();
 
-    // Start periodic 15-second heartbeat registration so Cloudflare never loses the PIN
+    // Start 2-second Dual-Channel Edge Sync (Telemetry Ingestion & Command Polling)
     if (heartbeatInterval) clearInterval(heartbeatInterval);
     heartbeatInterval = setInterval(async () => {
       try {
-        await fetch(`${RELAY_URL}/api/pair/register`, {
+        const netInfo = getPrimaryNetworkInfo();
+        const res = await fetch(`${RELAY_URL}/api/pair/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             pairCode: activePairCode,
             roomId: activeRoomId,
             token: activeToken,
-            mac: net.mac,
-            localIp: net.ip,
+            mac: netInfo.mac,
+            localIp: netInfo.ip,
             hostname: os.hostname(),
             agentKey: AGENT_KEY,
-            pcName: os.hostname()
+            pcName: os.hostname(),
+            telemetry: getTelemetryPayload()
           })
         });
-        if (!relayWs || relayWs.readyState === WebSocket.CLOSED) {
-          connectRelayWs();
+
+        if (res.ok) {
+          const syncData = await res.json();
+          if (syncData && Array.isArray(syncData.commands) && syncData.commands.length > 0) {
+            for (const cmd of syncData.commands) {
+              if (cmd.action === 'POWER') {
+                const sub = cmd.subAction || cmd.payload?.action;
+                if (sub === 'sleep') executeSleep();
+                else if (sub === 'restart') executeRestart();
+                else if (sub === 'shutdown') executeShutdown();
+                else if (sub === 'lock') executeLock();
+                else if (sub === 'unlock') executeUnlock();
+              } else if (cmd.action === 'TERMINAL') {
+                const terminalCmd = cmd.payload?.command || cmd.command;
+                const result = await executeTerminal(terminalCmd);
+                try {
+                  await fetch(`${RELAY_URL}/api/command/result`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reqId: cmd.reqId, result, pairCode: activePairCode })
+                  });
+                } catch (e) {}
+              }
+            }
+          }
         }
       } catch (e) {}
-    }, 15000);
+    }, 2000);
 
   } catch (err) {
     console.warn(`[RELAY] Connection to relay failed (${err.message}). Retrying in 5s...`);

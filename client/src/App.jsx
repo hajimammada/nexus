@@ -36,7 +36,7 @@ import {
   RelayManager 
 } from './utils/api';
 
-const APP_VERSION = 'v3.4.0';
+const APP_VERSION = 'v3.4.1';
 
 export default function App() {
   const [settings, setSettings] = useState(() => getStoredSettings());
@@ -125,6 +125,30 @@ export default function App() {
     }
   }, [settings, addToast]);
 
+  // Dual-Channel Edge Relay & Local Status Polling (Zero-Fail Sync)
+  const checkEdgeStatus = useCallback(async () => {
+    const pairCode = settings.pairCode || (settings.roomId ? settings.roomId.split('_')[1] : null);
+    if (!pairCode) return;
+
+    try {
+      const baseUrl = settings.relayUrl || 'https://nexus.hajimammad.com';
+      const res = await fetch(`${baseUrl}/api/pair/status?code=${pairCode}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.online) {
+          setConnectionState(prev => ({ ...prev, online: true, source: 'relay' }));
+          if (data.telemetry) setTelemetry(data.telemetry);
+        }
+      }
+    } catch {}
+  }, [settings.pairCode, settings.roomId, settings.relayUrl]);
+
+  useEffect(() => {
+    checkEdgeStatus();
+    const interval = setInterval(checkEdgeStatus, 3000);
+    return () => clearInterval(interval);
+  }, [checkEdgeStatus]);
+
   // Fallback Local LAN Polling
   const checkLocalAgent = useCallback(async () => {
     if (!settings.agentUrl || connectionState.online) return;
@@ -138,11 +162,9 @@ export default function App() {
   }, [settings.agentUrl, settings.agentKey, connectionState.online]);
 
   useEffect(() => {
-    if (!settings.roomId && settings.agentUrl) {
-      checkLocalAgent();
-      const interval = setInterval(checkLocalAgent, 4000);
-      return () => clearInterval(interval);
-    }
+    checkLocalAgent();
+    const interval = setInterval(checkLocalAgent, 5000);
+    return () => clearInterval(interval);
   }, [checkLocalAgent, settings.roomId, settings.agentUrl]);
 
   const handleSaveSettings = (newSettings) => {

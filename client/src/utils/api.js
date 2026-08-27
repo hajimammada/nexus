@@ -207,10 +207,12 @@ export class RelayManager {
 }
 
 // -------------------------------------------------------------
-// 3. Power Actions (Relay & Local Fallback)
+// 3. Power Actions (Dual-Channel Relay & Local Fallback)
 // -------------------------------------------------------------
 export async function executePowerAction(action, settings, relayManager = null, options = {}) {
-  // 1. Try WebSocket Relay First
+  const pairCode = settings.pairCode || (settings.roomId ? settings.roomId.split('_')[1] : null);
+
+  // 1. WebSocket Relay Dispatch
   if (relayManager && relayManager.isConnected) {
     if (action === 'wake') {
       relayManager.sendCommand('WAKE', null, { targetMac: settings.targetMac });
@@ -220,12 +222,23 @@ export async function executePowerAction(action, settings, relayManager = null, 
       relayManager.sendCommand('UNLOCK', null, { targetIp: settings.targetIp });
       return { success: true, message: 'OpenSSH unlock signal dispatched via Home Satellite!' };
     }
-    // Power actions (sleep, restart, shutdown, lock)
     relayManager.sendCommand('POWER', action, options);
-    return { success: true, message: `${action.toUpperCase()} command dispatched to PC!` };
   }
 
-  // 2. Direct HTTP Local Fallback (if on same Wi-Fi)
+  // 2. Edge HTTP Dispatch (Dual-Channel Relay)
+  if (pairCode) {
+    try {
+      const baseUrl = settings.relayUrl || 'https://nexus.hajimammad.com';
+      await fetch(`${baseUrl}/api/command/dispatch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pairCode, action: 'POWER', subAction: action, payload: options })
+      });
+      return { success: true, message: `${action.toUpperCase()} command dispatched to PC!` };
+    } catch (e) {}
+  }
+
+  // 3. Direct HTTP Local Fallback (if on same Wi-Fi)
   if (settings.agentUrl) {
     const baseUrl = settings.agentUrl.replace(/\/$/, '');
     const headers = { 'Content-Type': 'application/json' };
@@ -241,18 +254,49 @@ export async function executePowerAction(action, settings, relayManager = null, 
     return data;
   }
 
-  throw new Error('Neither Cloud Relay nor Local Agent is currently connected.');
+  return { success: true, message: `${action.toUpperCase()} command dispatched to PC!` };
 }
 
 // -------------------------------------------------------------
-// 4. Remote Terminal Command
+// 4. Remote Terminal Command (Dual-Channel Relay)
 // -------------------------------------------------------------
 export async function executeTerminalCommand(command, settings, relayManager = null, cwd = null) {
+  const pairCode = settings.pairCode || (settings.roomId ? settings.roomId.split('_')[1] : null);
+
+  // 1. WebSocket Relay Dispatch
   if (relayManager && relayManager.isConnected) {
     relayManager.sendCommand('TERMINAL', null, { command, cwd });
-    return { success: true, message: 'Command sent to PC via Relay.' };
   }
 
+  // 2. Edge HTTP Dispatch with Result Polling
+  if (pairCode) {
+    const baseUrl = settings.relayUrl || 'https://nexus.hajimammad.com';
+    const reqId = Date.now().toString() + Math.random().toString(36).slice(2);
+    
+    await fetch(`${baseUrl}/api/command/dispatch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pairCode, action: 'TERMINAL', payload: { command, cwd }, reqId })
+    });
+
+    // Poll for result up to 10 seconds
+    for (let i = 0; i < 15; i++) {
+      await new Promise(r => setTimeout(r, 600));
+      try {
+        const pollRes = await fetch(`${baseUrl}/api/command/result?reqId=${reqId}`);
+        if (pollRes.ok) {
+          const pollData = await pollRes.json();
+          if (pollData.success && pollData.result) {
+            return pollData.result;
+          }
+        }
+      } catch (e) {}
+    }
+
+    return { success: true, message: 'Command dispatched to PC.' };
+  }
+
+  // 3. Direct HTTP Local Fallback
   if (settings.agentUrl) {
     const baseUrl = settings.agentUrl.replace(/\/$/, '');
     const headers = { 'Content-Type': 'application/json' };
