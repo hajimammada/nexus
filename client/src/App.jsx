@@ -16,13 +16,15 @@ import {
   Activity,
   Radio,
   Link2,
-  CheckCircle2
+  CheckCircle2,
+  Download
 } from 'lucide-react';
 
 import ConfirmPowerModal from './components/ConfirmPowerModal';
 import SettingsModal from './components/SettingsModal';
 import TerminalModal from './components/TerminalModal';
 import PairModal from './components/PairModal';
+import InstallWizardModal from './components/InstallWizardModal';
 import Toast from './components/Toast';
 
 import { 
@@ -46,6 +48,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [isPairOpen, setIsPairOpen] = useState(false);
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [powerActionModal, setPowerActionModal] = useState({ isOpen: false, action: null });
 
   // Toasts state
@@ -259,6 +262,16 @@ export default function App() {
                 {formattedDate}
               </div>
             </div>
+
+            {/* Download / Setup Wizard Button */}
+            <button
+              onClick={() => setIsWizardOpen(true)}
+              className="p-3.5 rounded-2xl bg-gradient-to-r from-cyan-500/15 to-blue-600/15 hover:from-cyan-500/25 hover:to-blue-600/25 text-cyan-300 border border-cyan-500/40 hover:border-cyan-400 transition-all duration-200 shadow-lg cursor-pointer flex items-center gap-2 text-xs font-bold"
+              title="Download & Installation Wizard"
+            >
+              <Download className="w-4 h-4 text-cyan-400" />
+              <span className="hidden md:inline">Download & Setup</span>
+            </button>
 
             {/* Pair PC Button */}
             <button
@@ -648,6 +661,11 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4 text-[11px]">
+            <button onClick={() => setIsWizardOpen(true)} className="hover:text-cyan-300 transition-colors cursor-pointer flex items-center gap-1">
+              <Download className="w-3.5 h-3.5" />
+              <span>Download & Setup</span>
+            </button>
+            <span>•</span>
             <button onClick={() => setIsPairOpen(true)} className="hover:text-cyan-300 transition-colors cursor-pointer flex items-center gap-1">
               <Link2 className="w-3.5 h-3.5" />
               <span>6-Digit PIN Pairing</span>
@@ -661,6 +679,11 @@ export default function App() {
       </footer>
 
       {/* Modals */}
+      <InstallWizardModal
+        isOpen={isWizardOpen}
+        onClose={() => setIsWizardOpen(false)}
+      />
+
       <PairModal
         isOpen={isPairOpen}
         onClose={() => setIsPairOpen(false)}
