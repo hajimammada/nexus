@@ -1,0 +1,24 @@
+R_DEF: Internal format may change without notice
+local
+color black
+color cyan_400
+color cyan_600
+color emerald_500
+color rose_500
+color slate_800
+color slate_900
+color white
+id btnConnect
+id btnTestUnlock
+id btnTestWol
+id cardStatus
+id cardTargetInfo
+id dotStatus
+id etPin
+id tvStatus
+id tvTargetIp
+id tvTargetMac
+id tvTargetName
+layout activity_main
+string app_name
+style Theme.NexusSatellite
