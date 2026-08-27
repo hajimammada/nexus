@@ -45,9 +45,20 @@ try {
     }
     Write-Host "✓ Firewall ports 48880 and 22 verified" -ForegroundColor Green
 
-    # 5. Create dedicated unlock.cmd helper in agent directory
-    $agentDir = Join-Path $PSScriptRoot "agent"
-    $unlockCmd = Join-Path $agentDir "unlock.cmd"
+    # 5. Install agent permanently to C:\ProgramData\NexusAgent
+    $sourceAgentDir = Join-Path $PSScriptRoot "agent"
+    $targetBaseDir = Join-Path $env:ProgramData "NexusAgent"
+    $targetAgentDir = Join-Path $targetBaseDir "agent"
+
+    if (-not (Test-Path $targetAgentDir)) {
+        New-Item -ItemType Directory -Path $targetAgentDir -Force | Out-Null
+    }
+
+    if (Test-Path $sourceAgentDir) {
+        Copy-Item -Path "$sourceAgentDir\*" -Destination $targetAgentDir -Recurse -Force
+    }
+
+    $unlockCmd = Join-Path $targetAgentDir "unlock.cmd"
     $unlockContent = @"
 @echo off
 for /f "tokens=3" %%i in ('query session ^| findstr /i "%USERNAME%"') do (
@@ -56,16 +67,16 @@ for /f "tokens=3" %%i in ('query session ^| findstr /i "%USERNAME%"') do (
 "@
     Set-Content -Path $unlockCmd -Value $unlockContent -Encoding ASCII
 
-    # 6. Register Task Scheduler Boot Service (SYSTEM Account)
-    $serverJs = Join-Path $agentDir "server.js"
-    $action = New-ScheduledTaskAction -Execute "$nodePath" -Argument "`"$serverJs`"" -WorkingDirectory "$agentDir"
+    # 6. Register Task Scheduler Boot Service (SYSTEM Account) from permanent path
+    $serverJs = Join-Path $targetAgentDir "server.js"
+    $action = New-ScheduledTaskAction -Execute "$nodePath" -Argument "`"$serverJs`"" -WorkingDirectory "$targetAgentDir"
     $trigger = New-ScheduledTaskTrigger -AtStartup
     $principal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Days 365)
     
     Register-ScheduledTask -TaskName "NexusPCAgent" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description "Nexus PC Companion Agent Boot Service" -Force | Out-Null
     Start-ScheduledTask -TaskName "NexusPCAgent"
-    Write-Host "✓ Task Scheduler Service 'NexusPCAgent' registered and running" -ForegroundColor Green
+    Write-Host "✓ Task Scheduler Service 'NexusPCAgent' registered permanently from $targetAgentDir" -ForegroundColor Green
 
     # 7. Query active pairing info from running agent
     Start-Sleep -Seconds 2

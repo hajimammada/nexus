@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
-using System.Net.Http;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -58,13 +57,13 @@ namespace Nexus.Installer
             CheckExistingInstallation();
         }
 
-        private async void CheckExistingInstallation()
+        private void CheckExistingInstallation()
         {
             try
             {
-                using (var client = new HttpClient { Timeout = TimeSpan.FromSeconds(2) })
+                using (var client = new WebClient())
                 {
-                    var json = await client.GetStringAsync("http://localhost:48880/api/pairing");
+                    var json = client.DownloadString("http://localhost:48880/api/pairing");
                     if (json.Contains("\"pairCode\""))
                     {
                         var pCode = ExtractJsonField(json, "pairCode");
@@ -525,13 +524,33 @@ namespace Nexus.Installer
             if (optService.IsChecked == true)
             {
                 progressStatus.Text = "Registering 24/7 Background Service...";
-                progressDetail.Text = "Creating Scheduled Task under NT AUTHORITY\\SYSTEM...";
+                progressDetail.Text = "Installing files to ProgramData and registering Scheduled Task...";
                 installProgress.Value = 85;
 
                 await Task.Run(new Action(() =>
                 {
-                    string serverJs = Path.Combine(agentDir, "server.js").Replace("'", "''");
-                    string safeAgentDir = agentDir.Replace("'", "''");
+                    string targetBaseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "NexusAgent");
+                    string targetAgentDir = Path.Combine(targetBaseDir, "agent");
+
+                    try
+                    {
+                        if (!Directory.Exists(targetAgentDir)) Directory.CreateDirectory(targetAgentDir);
+                        if (Directory.Exists(agentDir))
+                        {
+                            foreach (string dirPath in Directory.GetDirectories(agentDir, "*", SearchOption.AllDirectories))
+                            {
+                                Directory.CreateDirectory(dirPath.Replace(agentDir, targetAgentDir));
+                            }
+                            foreach (string newPath in Directory.GetFiles(agentDir, "*.*", SearchOption.AllDirectories))
+                            {
+                                File.Copy(newPath, newPath.Replace(agentDir, targetAgentDir), true);
+                            }
+                        }
+                    }
+                    catch { }
+
+                    string serverJs = Path.Combine(targetAgentDir, "server.js").Replace("'", "''");
+                    string safeAgentDir = targetAgentDir.Replace("'", "''");
                     string psCmd = string.Format(
                         "$nodeCmd = Get-Command node.exe -ErrorAction SilentlyContinue; " +
                         "$nodePath = if ($nodeCmd) {{ $nodeCmd.Source }} else {{ 'C:\\Program Files\\nodejs\\node.exe' }}; " +
@@ -559,9 +578,9 @@ namespace Nexus.Installer
                 await Task.Delay(1000);
                 try
                 {
-                    using (var client = new HttpClient { Timeout = TimeSpan.FromSeconds(2) })
+                    using (var client = new WebClient())
                     {
-                        var json = await client.GetStringAsync("http://localhost:48880/api/pairing");
+                        var json = client.DownloadString("http://localhost:48880/api/pairing");
                         if (json.Contains("\"pairCode\""))
                         {
                             var pCode = ExtractJsonField(json, "pairCode");
