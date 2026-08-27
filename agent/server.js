@@ -410,14 +410,40 @@ app.get('/api/ping', (req, res) => {
 });
 
 app.get('/api/pairing', (req, res) => {
+  const net = getPrimaryNetworkInfo();
   res.json({
     success: true,
     pairCode: activePairCode,
     roomId: activeRoomId,
+    token: activeToken,
     relayUrl: RELAY_URL,
     dashboardUrl: `${RELAY_URL}/#pair=${activePairCode}`,
-    localIp: getPrimaryNetworkInfo().ip,
-    mac: getPrimaryNetworkInfo().mac
+    localIp: net.ip,
+    mac: net.mac,
+    hostname: os.hostname(),
+    agentKey: AGENT_KEY
+  });
+});
+
+app.post('/api/pair/claim', (req, res) => {
+  const { pairCode, code } = req.body || {};
+  const inputCode = (pairCode || code || '').trim().replace(/[-\s]/g, '');
+  if (inputCode === activePairCode) {
+    const net = getPrimaryNetworkInfo();
+    return res.json({
+      success: true,
+      pairCode: activePairCode,
+      roomId: activeRoomId,
+      token: activeToken,
+      targetMac: net.mac,
+      targetIp: net.ip,
+      hostname: os.hostname(),
+      agentKey: AGENT_KEY
+    });
+  }
+  return res.status(404).json({
+    success: false,
+    error: 'Invalid pairing code for this machine.'
   });
 });
 
