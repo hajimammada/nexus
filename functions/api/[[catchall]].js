@@ -171,10 +171,12 @@ export async function onRequest(context) {
       const statePayload = JSON.stringify({
         type: 'ROOM_STATE',
         roomId,
+        online: room.agents.size > 0,
+        isOnline: room.agents.size > 0,
         agentsCount: room.agents.size,
         satellitesCount: room.satellites.size,
         clientsCount: room.clients.size,
-        isOnline: room.agents.size > 0
+        timestamp: new Date().toISOString()
       });
       for (const c of room.clients) {
         try { c.send(statePayload); } catch (e) {}

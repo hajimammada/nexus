@@ -341,7 +341,7 @@ function connectRelayWs() {
     relayWs.on('open', () => {
       console.log(`[RELAY-WS] Outbound WebSocket active to room [${activeRoomId}]!`);
 
-      // Start Telemetry Broadcast Loop (every 4 seconds)
+      // Start Telemetry Broadcast Loop (every 3 seconds)
       if (telemetryInterval) clearInterval(telemetryInterval);
       telemetryInterval = setInterval(() => {
         if (relayWs && relayWs.readyState === WebSocket.OPEN) {
@@ -350,8 +350,9 @@ function connectRelayWs() {
             online: true,
             data: getTelemetryPayload()
           }));
+          try { relayWs.ping(); } catch (e) {}
         }
-      }, 4000);
+      }, 3000);
     });
 
     relayWs.on('message', async (data) => {
@@ -387,18 +388,21 @@ function connectRelayWs() {
     });
 
     relayWs.on('close', () => {
-      console.log('[RELAY-WS] Disconnected from Cloud Relay. Reconnecting in 5s...');
+      console.log('[RELAY-WS] Disconnected from Cloud Relay. Reconnecting in 3s...');
       if (telemetryInterval) clearInterval(telemetryInterval);
-      setTimeout(connectRelayWs, 5000);
+      relayWs = null;
+      setTimeout(connectRelayWs, 3000);
     });
 
     relayWs.on('error', (err) => {
       console.error('[RELAY-WS] Socket error:', err.message);
-      relayWs.close();
+      try { relayWs.close(); } catch (e) {}
+      relayWs = null;
     });
 
   } catch (err) {
-    setTimeout(connectRelayWs, 5000);
+    relayWs = null;
+    setTimeout(connectRelayWs, 3000);
   }
 }
 

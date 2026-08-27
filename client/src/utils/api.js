@@ -145,7 +145,13 @@ export class RelayManager {
             this.onTelemetry(msg.data);
             this.onStateChange({ online: true, source: 'relay' });
           } else if (msg.type === 'ROOM_STATE') {
-            this.onStateChange({ online: msg.online, agentsCount: msg.agentsCount, satellitesCount: msg.satellitesCount, source: 'relay' });
+            const isAgentOnline = Boolean(msg.online ?? msg.isOnline ?? ((msg.agentsCount || 0) > 0));
+            this.onStateChange({ 
+              online: isAgentOnline, 
+              agentsCount: msg.agentsCount || 0, 
+              satellitesCount: msg.satellitesCount || 0, 
+              source: 'relay' 
+            });
           } else if (msg.type === 'TERMINAL_RESULT') {
             this.onTerminalResult(msg.result);
           } else if (msg.type === 'ACTION_RESPONSE') {
