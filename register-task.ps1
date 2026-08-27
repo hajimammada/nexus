@@ -45,18 +45,37 @@ try {
     }
     Write-Host "✓ Firewall ports 48880 and 22 verified" -ForegroundColor Green
 
-    # 5. Install agent permanently to C:\ProgramData\NexusAgent
+    # 5. Install or Upgrade agent permanently to C:\ProgramData\NexusAgent
     $sourceAgentDir = Join-Path $PSScriptRoot "agent"
     $targetBaseDir = Join-Path $env:ProgramData "NexusAgent"
     $targetAgentDir = Join-Path $targetBaseDir "agent"
+
+    $isUpgrade = Test-Path $targetAgentDir
+    if ($isUpgrade) {
+        Write-Host "🔄 Existing installation detected. Upgrading in-place..." -ForegroundColor Cyan
+        Stop-ScheduledTask -TaskName "NexusPCAgent" -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 500
+    }
 
     if (-not (Test-Path $targetAgentDir)) {
         New-Item -ItemType Directory -Path $targetAgentDir -Force | Out-Null
     }
 
+    # Backup existing credentials & pairing PIN if upgrading
+    $savedEnv = Join-Path $targetAgentDir ".env"
+    $savedPair = Join-Path $targetAgentDir "pairing.json"
+    $envBackup = $null
+    $pairBackup = $null
+    if (Test-Path $savedEnv) { $envBackup = Get-Content $savedEnv -Raw }
+    if (Test-Path $savedPair) { $pairBackup = Get-Content $savedPair -Raw }
+
     if (Test-Path $sourceAgentDir) {
         Copy-Item -Path "$sourceAgentDir\*" -Destination $targetAgentDir -Recurse -Force
     }
+
+    # Restore credentials & pairing PIN so user keeps their same 6-digit PIN
+    if ($envBackup) { Set-Content -Path $savedEnv -Value $envBackup -Encoding UTF8 }
+    if ($pairBackup) { Set-Content -Path $savedPair -Value $pairBackup -Encoding UTF8 }
 
     $unlockCmd = Join-Path $targetAgentDir "unlock.cmd"
     $unlockContent = @"
