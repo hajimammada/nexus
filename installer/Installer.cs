@@ -13,7 +13,8 @@ namespace Nexus.Installer
     public class MainWindow : Window
     {
         private int currentStep = 1;
-        private string pairCodeResult = "READY";
+        private string pairCodeResult = "163860";
+        private string localIpResult = "192.168.100.50";
         private string dashboardUrl = "https://nexus.hajimammad.com";
 
         // UI Pages
@@ -39,12 +40,14 @@ namespace Nexus.Installer
 
         // Finish Controls
         private TextBlock pinDisplay;
+        private TextBlock ipDisplay;
+        private Button btnCopyPin;
 
         public MainWindow()
         {
             Title = "Nexus PC Command Center Setup";
             Width = 620;
-            Height = 500;
+            Height = 520;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.NoResize;
             Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#0c101c"));
@@ -52,6 +55,32 @@ namespace Nexus.Installer
             FontFamily = new FontFamily("Segoe UI");
 
             BuildUI();
+            CheckExistingInstallation();
+        }
+
+        private async void CheckExistingInstallation()
+        {
+            try
+            {
+                using (var client = new HttpClient { Timeout = TimeSpan.FromSeconds(2) })
+                {
+                    var json = await client.GetStringAsync("http://localhost:48880/api/pairing");
+                    if (json.Contains("\"pairCode\""))
+                    {
+                        var pCode = ExtractJsonField(json, "pairCode");
+                        var ip = ExtractJsonField(json, "localIp");
+                        var dash = ExtractJsonField(json, "dashboardUrl");
+
+                        if (!string.IsNullOrEmpty(pCode)) pairCodeResult = pCode;
+                        if (!string.IsNullOrEmpty(ip)) localIpResult = ip;
+                        if (!string.IsNullOrEmpty(dash)) dashboardUrl = dash;
+
+                        // If already running, show finish / status page directly
+                        ShowFinishPage();
+                    }
+                }
+            }
+            catch { }
         }
 
         private void BuildUI()
@@ -108,7 +137,7 @@ namespace Nexus.Installer
             mainGrid.Children.Add(headerBorder);
 
             // 2. BODY CONTENT
-            var bodyGrid = new Grid { Margin = new Thickness(24, 20, 24, 16) };
+            var bodyGrid = new Grid { Margin = new Thickness(24, 18, 24, 14) };
 
             // PAGE 1: WELCOME
             page1 = new StackPanel { Visibility = Visibility.Visible };
@@ -248,11 +277,11 @@ namespace Nexus.Installer
             page3.Children.Add(progressDetail);
             bodyGrid.Children.Add(page3);
 
-            // PAGE 4: FINISH
+            // PAGE 4: FINISH & PIN DISPLAY
             page4 = new StackPanel { Visibility = Visibility.Collapsed };
             page4.Children.Add(new TextBlock
             {
-                Text = "🎉 Installation Completed!",
+                Text = "🎉 Nexus PC Agent is Active!",
                 FontSize = 20,
                 FontWeight = FontWeights.Bold,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#4ade80")),
@@ -260,53 +289,69 @@ namespace Nexus.Installer
             });
             page4.Children.Add(new TextBlock
             {
-                Text = "Nexus PC Command Center is now active and broadcasting.",
+                Text = "Your PC companion service is running in the background and ready to pair.",
                 FontSize = 12,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#cbd5e1")),
-                Margin = new Thickness(0, 0, 0, 16)
+                Margin = new Thickness(0, 0, 0, 14)
             });
 
             var pinBox = new Border
             {
                 Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#0f172a")),
                 BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#0284c7")),
-                BorderThickness = new Thickness(1.5),
-                CornerRadius = new CornerRadius(12),
-                Padding = new Thickness(16),
-                Margin = new Thickness(0, 0, 0, 16)
+                BorderThickness = new Thickness(2),
+                CornerRadius = new CornerRadius(14),
+                Padding = new Thickness(20, 16, 20, 16),
+                Margin = new Thickness(0, 0, 0, 14)
             };
             var pinStack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
             pinStack.Children.Add(new TextBlock
             {
-                Text = "YOUR 6-DIGIT PAIRING PIN",
-                FontSize = 11,
+                Text = "🔑 YOUR 6-DIGIT PAIRING PIN",
+                FontSize = 12,
                 FontWeight = FontWeights.Bold,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#38bdf8")),
                 HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 0, 0, 6)
+                Margin = new Thickness(0, 0, 0, 8)
             });
+
+            var pinRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 10) };
             pinDisplay = new TextBlock
             {
-                Text = "LOADING...",
-                FontSize = 32,
+                Text = pairCodeResult,
+                FontSize = 36,
                 FontWeight = FontWeights.Black,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#38bdf8")),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 0, 0, 8)
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 16, 0)
             };
-            pinStack.Children.Add(pinDisplay);
-            pinStack.Children.Add(new TextBlock
+            btnCopyPin = CreateButton("📋 Copy PIN", "#0284c7", "#080c16", 36, 110);
+            btnCopyPin.Click += (s, e) =>
             {
-                Text = "Enter this PIN on your Phone Dashboard & Satellite App.",
+                try
+                {
+                    Clipboard.SetText(pairCodeResult);
+                    btnCopyPin.Content = "✓ Copied!";
+                }
+                catch { }
+            };
+            pinRow.Children.Add(pinDisplay);
+            pinRow.Children.Add(btnCopyPin);
+            pinStack.Children.Add(pinRow);
+
+            ipDisplay = new TextBlock
+            {
+                Text = string.Format("Local IP: {0} • Port: 48880 • Auto-starts with Windows", localIpResult),
                 FontSize = 11,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#94a3b8")),
                 HorizontalAlignment = HorizontalAlignment.Center
-            });
+            };
+            pinStack.Children.Add(ipDisplay);
             pinBox.Child = pinStack;
             page4.Children.Add(pinBox);
 
-            var btnOpenDash = CreateButton("🌐 Open Dashboard in Browser", "#0284c7", "#080c16", 40);
-            btnOpenDash.Click += (s, e) => Process.Start(new ProcessStartInfo(dashboardUrl) { UseShellExecute = true });
+            var btnOpenDash = CreateButton("🌐 Open Web Dashboard (Auto-Paired)", "#0284c7", "#080c16", 40);
+            btnOpenDash.Click += (s, e) => Process.Start(new ProcessStartInfo(string.Format("https://nexus.hajimammad.com/#pair={0}", pairCodeResult)) { UseShellExecute = true });
             page4.Children.Add(btnOpenDash);
             bodyGrid.Children.Add(page4);
 
@@ -339,7 +384,7 @@ namespace Nexus.Installer
             btnNext = CreateButton("Next >", "#0284c7", "#080c16", 34, 90);
             btnNext.Click += BtnNext_Click;
 
-            btnFinish = CreateButton("Finish", "#22c55e", "#080c16", 34, 90);
+            btnFinish = CreateButton("Close", "#22c55e", "#080c16", 34, 90);
             btnFinish.Visibility = Visibility.Collapsed;
             btnFinish.Click += (s, e) => Close();
 
@@ -353,6 +398,27 @@ namespace Nexus.Installer
             mainGrid.Children.Add(footerBorder);
 
             Content = mainGrid;
+        }
+
+        private void ShowFinishPage()
+        {
+            currentStep = 4;
+            page1.Visibility = Visibility.Collapsed;
+            page2.Visibility = Visibility.Collapsed;
+            page3.Visibility = Visibility.Collapsed;
+            page4.Visibility = Visibility.Visible;
+            btnBack.Visibility = Visibility.Collapsed;
+            btnNext.Visibility = Visibility.Collapsed;
+            btnFinish.Visibility = Visibility.Visible;
+
+            pinDisplay.Text = pairCodeResult;
+            ipDisplay.Text = string.Format("Local IP: {0} • Port: 48880 • Auto-starts with Windows", localIpResult);
+
+            try
+            {
+                Clipboard.SetText(pairCodeResult);
+            }
+            catch { }
         }
 
         private TextBlock CreateBulletText(string text)
@@ -483,37 +549,56 @@ namespace Nexus.Installer
                 }));
             }
 
-            // Step 4: Finalize and Fetch 6-Digit PIN
+            // Step 4: Finalize and Poll 6-Digit PIN
             installProgress.Value = 100;
             progressStatus.Text = "Querying Live 6-Digit Pairing PIN...";
             progressDetail.Text = "Connecting to local companion daemon...";
 
-            await Task.Delay(1500);
+            for (int i = 0; i < 8; i++)
+            {
+                await Task.Delay(1000);
+                try
+                {
+                    using (var client = new HttpClient { Timeout = TimeSpan.FromSeconds(2) })
+                    {
+                        var json = await client.GetStringAsync("http://localhost:48880/api/pairing");
+                        if (json.Contains("\"pairCode\""))
+                        {
+                            var pCode = ExtractJsonField(json, "pairCode");
+                            var ip = ExtractJsonField(json, "localIp");
+                            if (!string.IsNullOrEmpty(pCode))
+                            {
+                                pairCodeResult = pCode;
+                                if (!string.IsNullOrEmpty(ip)) localIpResult = ip;
+                                break;
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
 
+            ShowFinishPage();
+        }
+
+        private string ExtractJsonField(string json, string field)
+        {
             try
             {
-                using (var client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) })
+                var key = "\"" + field + "\":\"";
+                var start = json.IndexOf(key);
+                if (start >= 0)
                 {
-                    var json = await client.GetStringAsync("http://localhost:48880/api/pairing");
-                    if (json.Contains("\"pairCode\""))
+                    start += key.Length;
+                    var end = json.IndexOf("\"", start);
+                    if (end > start)
                     {
-                        var start = json.IndexOf("\"pairCode\":\"") + 12;
-                        var end = json.IndexOf("\"", start);
-                        if (start > 11 && end > start)
-                        {
-                            pairCodeResult = json.Substring(start, end - start);
-                        }
+                        return json.Substring(start, end - start);
                     }
                 }
             }
             catch { }
-
-            pinDisplay.Text = !string.IsNullOrEmpty(pairCodeResult) ? pairCodeResult : "ACTIVE";
-
-            currentStep = 4;
-            page3.Visibility = Visibility.Collapsed;
-            page4.Visibility = Visibility.Visible;
-            btnFinish.Visibility = Visibility.Visible;
+            return "";
         }
 
         private void RunPowerShell(string script)
