@@ -181,35 +181,57 @@ function executeShutdown() {
   });
 }
 
-function executeLock() {
+function getSessionInfo() {
+  return new Promise((resolve) => {
+    exec('query session', (err, stdout) => {
+      if (!stdout || stdout.trim().length === 0) return resolve({ id: '1', state: 'Active' });
+      const lines = stdout.split('\n');
+      for (let l of lines) {
+        const m = l.match(/(\d+)\s+(Active|Disc)/i);
+        if (!m) continue;
+        const id = m[1];
+        const state = m[2];
+        if (id !== '0' && id !== '65536') {
+          return resolve({ id, state });
+        }
+      }
+      resolve({ id: '1', state: 'Active' });
+    });
+  });
+}
+
+async function executeLock() {
   logAction('[POWER] Locking workstation...');
-  exec('for /f "tokens=3" %i in (\'query session ^| findstr /i "console"\') do tsdiscon %i', (err) => {
+  const sess = await getSessionInfo();
+  logAction(`[POWER] Disconnecting session ${sess.id} (${sess.state})...`);
+  exec(`tsdiscon ${sess.id}`, (err) => {
     if (err) {
-      execFile(TSDISCON_PATH, ['1'], () => {
-        execFile(RUNDLL32_PATH, ['user32.dll,LockWorkStation']);
-      });
+      logAction(`[POWER] tsdiscon fallback to LockWorkStation`);
+      exec('rundll32.exe user32.dll,LockWorkStation');
     }
   });
 }
 
-const UNLOCK_SCRIPT_PATH = path.join(__dirname, 'unlock-session.ps1');
+async function executeUnlock() {
+  logAction('[POWER] Unlocking workstation console session...');
+  const sess = await getSessionInfo();
+  logAction(`[POWER] Current session state: ID=${sess.id}, State=${sess.state}`);
 
-function executeUnlock(user = 'aliye') {
-  logAction(`[POWER] Unlocking workstation console session...`);
-  execFile(POWERSHELL_PATH, [
-    '-NoProfile',
-    '-ExecutionPolicy', 'Bypass',
-    '-File', UNLOCK_SCRIPT_PATH
-  ], (err, stdout, stderr) => {
-    if (err) {
-      logAction(`[POWER] PowerShell unlock error: ${err.message}`);
-      exec('tscon 2 /dest:console', () => {
-        exec('tscon 1 /dest:console');
-      });
-    } else {
-      logAction(`[POWER] Unlock result: ${stdout ? stdout.trim() : 'OK'}`);
-    }
-  });
+  if (sess.state === 'Active') {
+    logAction(`[POWER] Cycling session ${sess.id} (tsdiscon -> tscon)...`);
+    exec(`tsdiscon ${sess.id}`, () => {
+      setTimeout(() => {
+        exec(`tscon ${sess.id} /dest:console`, (err) => {
+          logAction(`[POWER] Reattached session ${sess.id} to console. Result: ${err ? err.message : 'OK'}`);
+        });
+      }, 300);
+    });
+  } else {
+    logAction(`[POWER] Connecting disconnected session ${sess.id} to console...`);
+    exec(`tscon ${sess.id} /dest:console`, (err) => {
+      logAction(`[POWER] Reattached session ${sess.id} to console. Result: ${err ? err.message : 'OK'}`);
+    });
+  }
 }
 
 function executeTerminal(command, cwd = null, timeoutMs = 25000) {
