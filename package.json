@@ -1,0 +1,9 @@
+{
+  "name": "pc-control-dashboard",
+  "version": "1.4.0",
+  "description": "Universal PC Remote Controller Startpage and Dashboard",
+  "scripts": {
+    "build": "cd client && npm install && npm run build && cd .. && node -e \"const fs=require('fs'); fs.copyFileSync('./dist/index.html', './index.html'); if (fs.existsSync('./assets')) fs.rmSync('./assets', {recursive:true, force:true}); fs.cpSync('./dist/assets', './assets', {recursive:true});\"",
+    "start": "node agent/server.js"
+  }
+}

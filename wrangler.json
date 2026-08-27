@@ -1,0 +1,10 @@
+{
+  "name": "pc-control-dashboard",
+  "main": "worker.js",
+  "compatibility_date": "2026-08-25",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  }
+}
