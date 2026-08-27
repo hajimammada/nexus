@@ -1,4 +1,4 @@
-﻿// =========================================================================
+// =========================================================================
 // Nexus Cloud Relay & Multi-Tenant Signaling Hub (Cloudflare Worker)
 // Handles:
 // 1. Zero-Configuration 6-Digit Pairing Code Exchange
@@ -65,7 +65,7 @@ export default {
           pairCode = generatePairCode();
         }
 
-        const roomId = oom__;
+        const roomId = `room_${pairCode}_${Date.now().toString(36)}`;
         const token = crypto.randomUUID();
 
         const pairData = {
@@ -93,7 +93,7 @@ export default {
           roomId,
           token,
           expiresInSeconds: 900,
-          dashboardUrl: ${url.origin}/#pair=
+          dashboardUrl: `${url.origin}/#pair=${pairCode}`
         }), { headers: corsHeaders });
       } catch (err) {
         return new Response(JSON.stringify({ success: false, error: err.message }), { status: 400, headers: corsHeaders });
@@ -203,12 +203,10 @@ export default {
           // 1. Commands from Web Dashboard Client
           if (role === 'client') {
             if (msg.action === 'WAKE') {
-              // Forward WAKE command to all Home Satellites (to broadcast UDP Magic Packet)
               for (const s of room.satellites) {
                 try { s.send(JSON.stringify({ type: 'EXECUTE', action: 'WAKE', payload: msg.payload })); } catch (e) {}
               }
             } else if (msg.action === 'UNLOCK') {
-              // Forward UNLOCK command to Satellites (local SSH) and PC Agents
               for (const s of room.satellites) {
                 try { s.send(JSON.stringify({ type: 'EXECUTE', action: 'UNLOCK', payload: msg.payload })); } catch (e) {}
               }
@@ -216,7 +214,6 @@ export default {
                 try { a.send(JSON.stringify({ type: 'EXECUTE', action: 'UNLOCK', payload: msg.payload })); } catch (e) {}
               }
             } else if (msg.action === 'POWER' || msg.action === 'TERMINAL') {
-              // Forward Power (Sleep, Restart, Shutdown, Lock) or Terminal to PC Agent
               for (const a of room.agents) {
                 try { a.send(JSON.stringify({ type: 'EXECUTE', action: msg.action, subAction: msg.subAction, payload: msg.payload, reqId: msg.reqId })); } catch (e) {}
               }
@@ -261,7 +258,7 @@ export default {
       }
       return new Response('Nexus Dashboard Worker Online', { status: 200 });
     } catch (err) {
-      return new Response(Nexus Dashboard: , { status: 500 });
+      return new Response(`Nexus Dashboard: ${err.message}`, { status: 500 });
     }
   }
 };
