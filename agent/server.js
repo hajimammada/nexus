@@ -298,7 +298,10 @@ async function registerAndConnectRelay(previousPairCode = null) {
   try {
     const res = await fetch(`${RELAY_URL}/api/pair/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Nexus-Agent/3.8.3'
+      },
       body: JSON.stringify({
         pairCode: activePairCode,
         previousPairCode,
@@ -308,7 +311,8 @@ async function registerAndConnectRelay(previousPairCode = null) {
         localIp: net.ip,
         hostname: os.hostname(),
         agentKey: AGENT_KEY,
-        pcName: os.hostname()
+        pcName: os.hostname(),
+        telemetry: getTelemetryPayload()
       })
     });
 
@@ -344,7 +348,10 @@ async function registerAndConnectRelay(previousPairCode = null) {
         const netInfo = getPrimaryNetworkInfo();
         const res = await fetch(`${RELAY_URL}/api/pair/register`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Nexus-Agent/3.8.3'
+          },
           body: JSON.stringify({
             pairCode: activePairCode,
             roomId: activeRoomId,
@@ -375,7 +382,10 @@ async function registerAndConnectRelay(previousPairCode = null) {
                 try {
                   await fetch(`${RELAY_URL}/api/command/result`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Nexus-Agent/3.8.3'
+                    },
                     body: JSON.stringify({ reqId: cmd.reqId, result, pairCode: activePairCode })
                   });
                 } catch (e) {}
@@ -510,7 +520,7 @@ setInterval(() => {
 // Local REST Endpoints (Local Wi-Fi Access)
 // -------------------------------------------------------------
 app.get('/api/ping', (req, res) => {
-  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '3.8.3' });
+  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '3.8.4' });
 });
 
 app.get('/api/pairing', (req, res) => {

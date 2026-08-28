@@ -525,7 +525,7 @@ namespace Nexus.Installer
             var footerGrid = new Grid();
             footerGrid.Children.Add(new TextBlock
             {
-                Text = "Nexus v3.8.3 Native",
+                Text = "Nexus v3.8.4 Native",
                 FontSize = 11,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#475569")),
                 VerticalAlignment = VerticalAlignment.Center
@@ -783,13 +783,11 @@ namespace Nexus.Installer
                         {
                             foreach (string dirPath in Directory.GetDirectories(agentDir, "*", SearchOption.AllDirectories))
                             {
-                                if (!dirPath.Contains("node_modules"))
-                                    Directory.CreateDirectory(dirPath.Replace(agentDir, targetAgentDir));
+                                Directory.CreateDirectory(dirPath.Replace(agentDir, targetAgentDir));
                             }
                             foreach (string newPath in Directory.GetFiles(agentDir, "*.*", SearchOption.AllDirectories))
                             {
-                                if (!newPath.Contains("node_modules"))
-                                    File.Copy(newPath, newPath.Replace(agentDir, targetAgentDir), true);
+                                File.Copy(newPath, newPath.Replace(agentDir, targetAgentDir), true);
                             }
                         }
 
