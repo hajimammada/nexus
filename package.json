@@ -1,6 +1,6 @@
 {
   "name": "pc-control-dashboard",
-  "version": "3.7.7",
+  "version": "3.7.8",
   "description": "Universal PC Remote Controller Startpage and Dashboard",
   "scripts": {
     "build": "python pack_agent.py && cd client && npm install && npm run build && cd .. && python pack_agent.py && node -e \"const fs=require('fs'); fs.copyFileSync('./dist/index.html', './index.html'); if (fs.existsSync('./assets')) fs.rmSync('./assets', {recursive:true, force:true}); fs.cpSync('./dist/assets', './assets', {recursive:true});\"",
