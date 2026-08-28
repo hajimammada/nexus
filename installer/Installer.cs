@@ -525,7 +525,7 @@ namespace Nexus.Installer
             var footerGrid = new Grid();
             footerGrid.Children.Add(new TextBlock
             {
-                Text = "Nexus v3.8.2 Native",
+                Text = "Nexus v3.8.3 Native",
                 FontSize = 11,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#475569")),
                 VerticalAlignment = VerticalAlignment.Center

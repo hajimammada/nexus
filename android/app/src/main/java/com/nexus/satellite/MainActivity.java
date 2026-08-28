@@ -119,15 +119,14 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        btnConnect.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                String pin = etPin.getText().toString().trim().replace("-", "");
-                if (pin.length() < 6) {
+                String pin = etPin.getText().toString().trim().replaceAll("[^0-9]", "");
+                if (pin.length() != 6) {
                     Toast.makeText(MainActivity.this, "Please enter a valid 6-digit PIN", Toast.LENGTH_SHORT).show();
                     return;
                 }
-                claimPinAndStartService(pin);
+                claimPinAndStartService(pin, 1);
             }
         });
 
@@ -310,10 +309,10 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void claimPinAndStartService(final String pin) {
+    private void claimPinAndStartService(final String pin, final int attempt) {
         btnConnect.setEnabled(false);
-        btnConnect.setText("CONNECTING...");
-        appendLog("🔗 Claiming PIN [" + pin + "] from Cloud Relay...");
+        btnConnect.setText(attempt > 1 ? "RETRYING (" + attempt + "/3)..." : "CONNECTING...");
+        appendLog("🔗 Claiming PIN [" + pin + "] from Cloud Relay (Attempt " + attempt + "/3)...");
 
         try {
             JSONObject json = new JSONObject();
@@ -322,12 +321,22 @@ public class MainActivity extends AppCompatActivity {
             RequestBody body = RequestBody.create(mediaType, json.toString());
             Request request = new Request.Builder()
                     .url(relayUrl + "/api/pair/claim")
+                    .addHeader("User-Agent", "Nexus-Android-Satellite/3.8.3")
                     .post(body)
                     .build();
 
             httpClient.newCall(request).enqueue(new Callback() {
                 @Override
                 public void onFailure(Call call, final IOException e) {
+                    if (attempt < 3) {
+                        mainHandler.postDelayed(new Runnable() {
+                            @Override
+                            public void run() {
+                                claimPinAndStartService(pin, attempt + 1);
+                            }
+                        }, 1500);
+                        return;
+                    }
                     mainHandler.post(new Runnable() {
                         @Override
                         public void run() {
@@ -388,6 +397,15 @@ public class MainActivity extends AppCompatActivity {
 
                             RelayService.startService(MainActivity.this, roomId, token, targetMac, targetIp, relayUrl);
                         } else {
+                            if (attempt < 3 && (resStr.contains("not found") || resStr.contains("offline"))) {
+                                mainHandler.postDelayed(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        claimPinAndStartService(pin, attempt + 1);
+                                    }
+                                }, 1500);
+                                return;
+                            }
                             final String errorMsg = resJson.optString("error", "Invalid or unregistered Pairing PIN.");
                             mainHandler.post(new Runnable() {
                                 @Override
