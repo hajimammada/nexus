@@ -207,13 +207,13 @@ function getSessionInfo() {
 async function executeLock() {
   logAction('[POWER] Locking workstation...');
   const sess = await getSessionInfo();
-  logAction(`[POWER] Disconnecting session ${sess.id} (${sess.state})...`);
+  logAction(`[POWER] Disconnecting session ${sess.id} (${sess.state}) to lock console...`);
   exec(`tsdiscon ${sess.id}`, (err) => {
     if (err) {
-      logAction(`[POWER] tsdiscon fallback to LockWorkStation`);
-      exec('rundll32.exe user32.dll,LockWorkStation');
+      logAction(`[POWER] tsdiscon fallback: ${err.message}`);
     }
   });
+  exec('rundll32.exe user32.dll,LockWorkStation');
 }
 
 async function executeUnlock() {
@@ -549,7 +549,7 @@ setInterval(() => {
 // Local REST Endpoints (Local Wi-Fi Access)
 // -------------------------------------------------------------
 app.get('/api/ping', (req, res) => {
-  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '4.0.4' });
+  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '4.0.5' });
 });
 
 app.get('/api/pairing', (req, res) => {
@@ -697,7 +697,7 @@ udpServer.on('message', (msg, rinfo) => {
     pairCode: activePairCode,
     agentKey: AGENT_KEY,
     port: PORT,
-    version: '4.0.4'
+    version: '4.0.5'
   });
   udpServer.send(responsePayload, rinfo.port, rinfo.address, (err) => {
     if (!err) {

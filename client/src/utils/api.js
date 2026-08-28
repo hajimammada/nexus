@@ -206,7 +206,7 @@ export async function executePowerAction(action, settings, relayManager = null, 
   const reqId = Date.now().toString() + Math.random().toString(36).slice(2);
   const actUpper = action.toUpperCase();
 
-  // 1. WebSocket Relay Dispatch (Instant execution when PC or Satellite is connected)
+  // 1. WebSocket Relay Dispatch (Instant execution when PC or Satellite is in same room)
   if (relayManager && relayManager.isConnected) {
     if (actUpper === 'WAKE' || actUpper === 'TURN ON') {
       relayManager.sendCommand('WAKE', null, { targetMac: settings.targetMac, reqId });
@@ -215,13 +215,9 @@ export async function executePowerAction(action, settings, relayManager = null, 
     } else {
       relayManager.sendCommand('POWER', action.toLowerCase(), { ...options, reqId });
     }
-    // If not Wake-on-LAN, live WebSocket delivers it instantly
-    if (actUpper !== 'WAKE' && actUpper !== 'TURN ON') {
-      return { success: true, message: `⚡ ${action.toUpperCase()} command sent over live WebSocket!` };
-    }
   }
 
-  // 2. Edge HTTP Dispatch (Dual-Channel Relay to Android Satellite)
+  // 2. Edge HTTP Dispatch (Dual-Channel Relay to PC Agent & Android Satellite)
   if (pairCode) {
     try {
       const baseUrl = settings.relayUrl || 'https://nexus.hajimammad.com';
@@ -239,7 +235,7 @@ export async function executePowerAction(action, settings, relayManager = null, 
 
       const dispatchData = await dispatchRes.json().catch(() => ({}));
 
-      // Poll for verified execution ACK from Android Satellite Gateway (up to 4s)
+      // Poll for verified execution ACK from PC Agent or Android Satellite Gateway (up to 4s)
       for (let i = 0; i < 8; i++) {
         await new Promise(r => setTimeout(r, 500));
         try {
@@ -255,7 +251,7 @@ export async function executePowerAction(action, settings, relayManager = null, 
 
       return { 
         success: true, 
-        message: dispatchData.message || `📡 ${action.toUpperCase()} dispatched to Home Gateway!` 
+        message: `⚡ ${action.toUpperCase()} command delivered to PC!` 
       };
     } catch (e) {
       console.warn('Dispatch notice:', e.message);
