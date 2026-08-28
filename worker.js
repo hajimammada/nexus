@@ -217,7 +217,7 @@ export async function handleRequest(request, env) {
         payload: typeof payload === 'object' ? JSON.stringify(payload) : String(payload)
       };
       
-      const fcmResult = await sendGoogleFcmPush(topic, fcmData);
+      const fcmResult = await sendGoogleFcmPush(topic, fcmData, env);
 
       // 2. Send via WebSocket if satellite or agent is connected to this isolate
       const pair = activePairings.get(code);
@@ -397,12 +397,6 @@ export async function handleRequest(request, env) {
 // =========================================================================
 // Google Firebase Cloud Messaging (FCM v1) High-Priority Dispatch Engine
 // =========================================================================
-const FCM_SERVICE_ACCOUNT = {
-  project_id: "nexus-satellite",
-  client_email: "firebase-adminsdk-fbsvc@nexus-satellite.iam.gserviceaccount.com",
-  pkcs8_der_b64: "MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDcAsIJUK9x9oSgcdFCf377mmZyCJUfkxEF7jF8Ey0PhkpSqrBeZjK7Rb7aVYKxnjgvseAAGLVpJILlMwQvEUrQjgb4ys+fWUaiL3znnjD79zZP42wVbHrSwD0HJ8iKUvzzf1OvwnmGMSAGBvvseO9pC3jbeLxr3x1zegdSQBn6lZySnOrKU4snvbMe2uTAMpHmCxo/vths4tWof7MSi2QnVktCKdl6pZw3nFgTnt0LExMFUvO5N3Jp2CeIKyNeCeIodiydNF3jZETmIXbdxzOBms358iIJIkp8ijYWkaYHdMuc0Ncs9P3CccMNz/ik3GWFsPNiSGs5XRAN0dfr9q7dAgMBAAECggEAFnTEm+FLqxDrrBm573Tmf+VcUAbeu7SN4AJWNDEb4BIHq4TnEBeT1YgSqSPhvWHmH74i3DepapQytRS+OFSmQ3+/p+zBgOUCn+LDd7uuicVLmp9epJgoODMtd3nAzxeV4H+uScoKj98bQuo7FAGrBBiK6zHZX5RMJAGAVk2bKTekKo6egdPQAb4XrFQKtoLyvePRdOc/nCSm8zTwpR0XNXBHF9vm88du0VEMD3mFE4J9TwwKKob2sIc1M379L6JreFDHSfTdvWylziF6XGzeTS7GqL4UDcoBmAyw5/iX84+N/aix3DR3l4CZ9JjumFYQfGVRL55FXtfwFTONYL3JqQKBgQDv/Ro7sVwGvscgTkfWFlgecEhPn2MXYoeAtEABkjPDDd85jKkp4grzZJm0OyoeJjb+HseL4Nt699EhJs1aXvL7zYQuq3Tsu4duuwzLmigJd6uwTWPHUILZJ4+8MCwuR5YOnySOIbClPN/zZFRC0paIkNuwnYKm/1e/ELtruXIDVQKBgQDqsHEf/0QBwzD6L57Gp+BQ2cTEr57U+VEBPjrIAwbMrcDy6k5vQbc3C+eFRrgtFTFREdpvcuZJWCQ3aAv8HvR9o3e5Rz9X9nNJqFaeY87SPqEeDljNhKiwgS3pyWgVKzCCrYca3XbGVvfQGDQlmU0mnmgv6dRWoCIn6N242egNaQKBgQDtmPQD7VBjDTYv8dCFUJHlcNzml7KPUGk/LzW/WHQOxQkf/PbuFHErD4ptObY1Kzh+1xJQlko1sGxIGhZtRlvimFIpsm6Mgg1Pv7inSvQgi25bmgMTLc6eF+DiO/9BwnX5++1BGnG85kwCuG4DymJmyqP2c7sKgvromzQzLuKGEQKBgE8D4sKEHjB9uFKzj8CQquxttVsHSfGok0ZY3k+S/UoSQgFHM+svc/Ebl/J+UeoT1YvW9/VH+RK+k0r4Q/i5r1VRoTCHNWN3PW+SNr+TGQIeRf6pk+p1/JmYlI2+2sUtymJk7DT2VVQH2d19GKmECL603J0tG+midn17YJMpAoDpAoGBALkL7+F6xbcTRl6Is5l7EkbrqDnZk/hErvZKYPcXelTIABQYKbs//RYrVUjiFreS3mazHrhvIFKTaeW0ZbxYsvDjtz0DdZxNNl8gXZBBX9IE4pm23hl37ETE3SoHh7csY3NET+B+6zYmXNJE2BWNnuHor5zV79pnmVWC0dBjuuQA"
-};
-
 let cachedGoogleToken = null;
 let tokenExpiresAt = 0;
 
@@ -413,13 +407,25 @@ function b64ToUint8Array(b64) {
   return u8;
 }
 
-async function getGoogleAccessToken() {
+async function getGoogleAccessToken(env) {
   const now = Math.floor(Date.now() / 1000);
   if (cachedGoogleToken && now < tokenExpiresAt - 60) {
     return cachedGoogleToken;
   }
 
-  const u8 = b64ToUint8Array(FCM_SERVICE_ACCOUNT.pkcs8_der_b64);
+  const clientEmail = env?.FCM_CLIENT_EMAIL;
+  const rawKey = env?.FCM_PRIVATE_KEY_B64 || env?.FCM_PRIVATE_KEY;
+
+  if (!clientEmail || !rawKey) {
+    throw new Error('FCM credentials missing. Please set FCM_CLIENT_EMAIL and FCM_PRIVATE_KEY_B64 in Cloudflare Worker Secrets.');
+  }
+
+  const cleanB64 = rawKey
+    .replace(/-----BEGIN PRIVATE KEY-----/g, '')
+    .replace(/-----END PRIVATE KEY-----/g, '')
+    .replace(/[\r\n\s]/g, '');
+
+  const u8 = b64ToUint8Array(cleanB64);
   const key = await crypto.subtle.importKey(
     'pkcs8',
     u8.buffer,
@@ -430,7 +436,7 @@ async function getGoogleAccessToken() {
 
   const header = btoa(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
   const claim = btoa(JSON.stringify({
-    iss: FCM_SERVICE_ACCOUNT.client_email,
+    iss: clientEmail,
     scope: 'https://www.googleapis.com/auth/firebase.messaging',
     aud: 'https://oauth2.googleapis.com/token',
     exp: now + 3600,
@@ -456,10 +462,11 @@ async function getGoogleAccessToken() {
   throw new Error('Failed to acquire Google OAuth2 Token: ' + JSON.stringify(data));
 }
 
-async function sendGoogleFcmPush(topic, dataPayload) {
+async function sendGoogleFcmPush(topic, dataPayload, env) {
   try {
-    const token = await getGoogleAccessToken();
-    const res = await fetch(`https://fcm.googleapis.com/v1/projects/${FCM_SERVICE_ACCOUNT.project_id}/messages:send`, {
+    const projectId = env?.FCM_PROJECT_ID || "nexus-satellite";
+    const token = await getGoogleAccessToken(env);
+    const res = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
