@@ -339,30 +339,33 @@ export async function handleRequest(request, env) {
       
       const fcmResult = await sendGoogleFcmPush(topic, fcmData, env);
 
-      // 2. Send via WebSocket if satellite or agent is connected to this isolate
-      const pair = activePairings.get(code);
-      if (pair && pair.roomId && activeRooms.has(pair.roomId)) {
-        const room = activeRooms.get(pair.roomId);
+      // 2. Send via WebSocket to all active room participants
+      const roomId = (pair && pair.roomId) || `room_${code}_pc`;
+      let wsDelivered = false;
+      if (activeRooms.has(roomId)) {
+        const room = activeRooms.get(roomId);
         for (const s of room.satellites) {
-          try { s.send(JSON.stringify(cmdObj)); } catch (e) {}
+          try { s.send(JSON.stringify(cmdObj)); wsDelivered = true; } catch (e) {}
         }
         for (const a of room.agents) {
-          try { a.send(JSON.stringify(cmdObj)); } catch (e) {}
+          try { a.send(JSON.stringify(cmdObj)); wsDelivered = true; } catch (e) {}
         }
       }
 
-      // 3. Queue into pendingCommands for HTTP retrieval by Android Satellite
+      // 3. Queue into pendingCommands for HTTP retrieval by Android Satellite & Agent
       if (!pendingCommands.has(code)) pendingCommands.set(code, []);
       pendingCommands.get(code).push(cmdObj);
 
-      const fcmOk = fcmResult && fcmResult.ok;
-      const fcmMsg = fcmOk
-        ? `Google FCM Push Sent to [${topic}]`
-        : `Google FCM Error: ${fcmResult ? (fcmResult.error || JSON.stringify(fcmResult.data?.error || fcmResult)) : 'Unknown'}`;
+      const fcmOk = Boolean(fcmResult && fcmResult.ok);
+      const fcmMsg = wsDelivered
+        ? `⚡ Dispatched directly via live WebSocket`
+        : (fcmOk ? `Google FCM Push Sent to [${topic}]` : `Command queued for satellite delivery`);
 
       return new Response(JSON.stringify({ 
-        success: fcmOk, 
+        success: true, 
         reqId, 
+        fcmOk,
+        dispatchedVia: wsDelivered ? 'websocket' : (fcmOk ? 'fcm' : 'queue'),
         fcm: fcmResult,
         message: fcmMsg 
       }), { headers: corsHeaders });

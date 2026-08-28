@@ -452,14 +452,16 @@ function connectRelayWs() {
         const msg = JSON.parse(data.toString());
         console.log('[RELAY-WS] Command received:', msg);
 
-        if (msg.type === 'EXECUTE') {
+        if (msg.type === 'EXECUTE' || msg.type === 'COMMAND') {
           const providedToken = msg.token || msg.payload?.token || msg.agentKey || msg.payload?.agentKey;
           if (providedToken && !safeCompare(providedToken, activeToken) && !safeCompare(providedToken, AGENT_KEY)) {
             console.warn('[SECURITY] Blocked unauthenticated command with invalid session token.');
             return;
           }
-          if (msg.action === 'POWER') {
-            const sub = msg.subAction || msg.payload?.action;
+          const act = (msg.action || '').toUpperCase();
+          const sub = (msg.subAction || msg.payload?.action || '').toLowerCase();
+
+          if (act === 'POWER') {
             if (sub === 'sleep') executeSleep();
             else if (sub === 'restart') executeRestart();
             else if (sub === 'shutdown') executeShutdown();
@@ -476,9 +478,17 @@ function connectRelayWs() {
                 message: `${(sub || 'Power').toUpperCase()} executed successfully on PC!`
               }));
             }
-          } else if (msg.action === 'UNLOCK') {
+          } else if (act === 'LOCK') {
+            executeLock();
+          } else if (act === 'UNLOCK') {
             executeUnlock();
-          } else if (msg.action === 'TERMINAL') {
+          } else if (act === 'SLEEP') {
+            executeSleep();
+          } else if (act === 'RESTART') {
+            executeRestart();
+          } else if (act === 'SHUTDOWN') {
+            executeShutdown();
+          } else if (act === 'TERMINAL') {
             const command = msg.payload?.command || msg.command;
             const result = await executeTerminal(command);
             if (relayWs && relayWs.readyState === WebSocket.OPEN) {
@@ -528,7 +538,7 @@ setInterval(() => {
 // Local REST Endpoints (Local Wi-Fi Access)
 // -------------------------------------------------------------
 app.get('/api/ping', (req, res) => {
-  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '3.9.8' });
+  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '3.9.9' });
 });
 
 app.get('/api/pairing', (req, res) => {
@@ -676,7 +686,7 @@ udpServer.on('message', (msg, rinfo) => {
     pairCode: activePairCode,
     agentKey: AGENT_KEY,
     port: PORT,
-    version: '3.9.8'
+    version: '3.9.9'
   });
   udpServer.send(responsePayload, rinfo.port, rinfo.address, (err) => {
     if (!err) {
