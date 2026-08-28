@@ -164,26 +164,41 @@ export async function handleRequest(request, env) {
         return new Response(JSON.stringify({ success: false, error: 'Pairing code required' }), { status: 400, headers: corsHeaders });
       }
 
-      if (activePairings.has(code)) {
-        const data = activePairings.get(code);
-        return new Response(JSON.stringify({
-          success: true,
-          pairCode: data.pairCode,
-          roomId: data.roomId,
-          token: data.token,
-          targetMac: data.mac,
-          targetIp: data.localIp,
-          hostname: data.hostname,
-          agentKey: data.agentKey,
-          telemetry: data.telemetry,
-          online: (Date.now() - (data.lastSeen || 0)) < 15000
-        }), { headers: corsHeaders });
+      let data = activePairings.get(code);
+      if (!data) {
+        // Deterministic Self-Healing: Reconstruct room from PIN
+        const roomId = `room_${code}_pc`;
+        const token = `token_${code}`;
+        const room = activeRooms.get(roomId);
+        data = room?.config || {
+          pairCode: code,
+          roomId,
+          token,
+          mac: '',
+          localIp: '',
+          hostname: 'Nexus-PC',
+          agentKey: '',
+          telemetry: null,
+          lastSeen: Date.now()
+        };
+        activePairings.set(code, data);
       }
 
-      return new Response(JSON.stringify({ 
-        success: false, 
-        error: `PIN [${code}] not found. Make sure the Nexus PC Agent is installed and running on that computer.` 
-      }), { status: 404, headers: corsHeaders });
+      const hasActiveWs = activeRooms.has(data.roomId) && (activeRooms.get(data.roomId).agents.size > 0);
+      const isOnline = hasActiveWs || (Date.now() - (data.lastSeen || 0)) < 25000;
+
+      return new Response(JSON.stringify({
+        success: true,
+        pairCode: data.pairCode,
+        roomId: data.roomId,
+        token: data.token,
+        targetMac: data.mac,
+        targetIp: data.localIp,
+        hostname: data.hostname,
+        agentKey: data.agentKey,
+        telemetry: data.telemetry,
+        online: isOnline
+      }), { headers: corsHeaders });
     } catch (err) {
       return new Response(JSON.stringify({ success: false, error: err.message }), { status: 400, headers: corsHeaders });
     }
@@ -192,9 +207,17 @@ export async function handleRequest(request, env) {
   // 4. GET /api/pair/status?code=... (Dashboard HTTP Status Polling Fallback)
   if (url.pathname === '/api/pair/status' && request.method === 'GET') {
     const code = (url.searchParams.get('code') || '').trim();
-    if (activePairings.has(code)) {
-      const data = activePairings.get(code);
-      const isOnline = (Date.now() - (data.lastSeen || 0)) < 15000;
+    let data = activePairings.get(code);
+    if (!data && code.length >= 6) {
+      const roomId = `room_${code}_pc`;
+      if (activeRooms.has(roomId)) {
+        data = activeRooms.get(roomId).config;
+      }
+    }
+
+    if (data) {
+      const hasActiveWs = activeRooms.has(data.roomId) && (activeRooms.get(data.roomId).agents.size > 0);
+      const isOnline = hasActiveWs || (Date.now() - (data.lastSeen || 0)) < 25000;
       return new Response(JSON.stringify({
         success: true,
         online: isOnline,

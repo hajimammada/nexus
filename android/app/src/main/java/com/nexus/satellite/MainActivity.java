@@ -119,6 +119,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        btnConnect.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 String pin = etPin.getText().toString().trim().replaceAll("[^0-9]", "");

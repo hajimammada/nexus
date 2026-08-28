@@ -104,7 +104,7 @@ for /f "tokens=3" %%i in ('query session ^| findstr /i "%USERNAME%"') do (
 
     # 6. Register Task Scheduler Boot Service (SYSTEM Account) from permanent path
     $serverJs = Join-Path $targetAgentDir "server.js"
-    $action = New-ScheduledTaskAction -Execute "$nodePath" -Argument "`"$serverJs`"" -WorkingDirectory "$targetAgentDir"
+    $action = New-ScheduledTaskAction -Execute "$nodePath" -Argument "$serverJs" -WorkingDirectory "$targetAgentDir"
     $trigger = New-ScheduledTaskTrigger -AtStartup
     $principal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Days 365)

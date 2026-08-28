@@ -40,17 +40,20 @@ public class WolManager {
                 multicastLock.acquire();
             }
 
-            InetAddress broadcastAddr = InetAddress.getByName("255.255.255.255");
             DatagramSocket socket = new DatagramSocket();
             socket.setBroadcast(true);
 
-            // Send to port 9
-            DatagramPacket packet9 = new DatagramPacket(magicPacket, magicPacket.length, broadcastAddr, 9);
-            socket.send(packet9);
+            // 1. General Broadcast 255.255.255.255 (Ports 9 & 7)
+            InetAddress genBroadcast = InetAddress.getByName("255.255.255.255");
+            socket.send(new DatagramPacket(magicPacket, magicPacket.length, genBroadcast, 9));
+            socket.send(new DatagramPacket(magicPacket, magicPacket.length, genBroadcast, 7));
 
-            // Send to port 7 (fallback)
-            DatagramPacket packet7 = new DatagramPacket(magicPacket, magicPacket.length, broadcastAddr, 7);
-            socket.send(packet7);
+            // 2. Subnet Broadcast 192.168.100.255 (Ports 9 & 7)
+            try {
+                InetAddress subnetBroadcast = InetAddress.getByName("192.168.100.255");
+                socket.send(new DatagramPacket(magicPacket, magicPacket.length, subnetBroadcast, 9));
+                socket.send(new DatagramPacket(magicPacket, magicPacket.length, subnetBroadcast, 7));
+            } catch (Exception ignored) {}
 
             socket.close();
 

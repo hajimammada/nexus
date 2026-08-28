@@ -131,9 +131,10 @@ public class RelayService extends Service {
         String wsUrl = relayUrl.replace("https://", "wss://").replace("http://", "ws://") +
                 "/api/relay?room=" + roomId + "&role=satellite&token=" + token;
 
-        Log.i(TAG, "Connecting to WebSocket: " + wsUrl);
-
-        Request request = new Request.Builder().url(wsUrl).build();
+        Request request = new Request.Builder()
+                .url(wsUrl)
+                .addHeader("User-Agent", "Nexus-Android-Satellite/3.8.7")
+                .build();
         webSocket = client.newWebSocket(request, new WebSocketListener() {
             @Override
             public void onOpen(WebSocket ws, Response response) {

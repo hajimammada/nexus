@@ -525,7 +525,7 @@ namespace Nexus.Installer
             var footerGrid = new Grid();
             footerGrid.Children.Add(new TextBlock
             {
-                Text = "Nexus v3.8.6 Native",
+                Text = "Nexus v3.8.7 Native",
                 FontSize = 11,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#475569")),
                 VerticalAlignment = VerticalAlignment.Center
@@ -828,7 +828,7 @@ namespace Nexus.Installer
                         "$nodePath = if ($nodeCmd) {{ $nodeCmd.Source }} else {{ 'C:\\Program Files\\nodejs\\node.exe' }}; " +
                         "if (-not (Test-Path $nodePath)) {{ winget install OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements; $nodePath = 'C:\\Program Files\\nodejs\\node.exe'; }} " +
                         "if (Test-Path '{0}') {{ " +
-                        "$action = New-ScheduledTaskAction -Execute $nodePath -Argument '\"{0}\"' -WorkingDirectory '{1}'; " +
+                        "$action = New-ScheduledTaskAction -Execute $nodePath -Argument '{0}' -WorkingDirectory '{1}'; " +
                         "$trigger = New-ScheduledTaskTrigger -AtStartup; " +
                         "$principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\\SYSTEM' -LogonType ServiceAccount -RunLevel Highest; " +
                         "$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Days 365); " +
