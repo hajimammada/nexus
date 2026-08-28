@@ -543,16 +543,30 @@ async function getGoogleAccessToken(env) {
     return cachedGoogleToken;
   }
 
-  const clientEmail = env?.FCM_CLIENT_EMAIL;
-  const rawKey = env?.FCM_PRIVATE_KEY_B64 || env?.FCM_PRIVATE_KEY;
+  let clientEmail = env?.FCM_CLIENT_EMAIL || env?.CLIENT_EMAIL || env?.FIREBASE_CLIENT_EMAIL;
+  let rawKey = env?.FCM_PRIVATE_KEY_B64 || env?.FCM_PRIVATE_KEY || env?.PRIVATE_KEY || env?.FIREBASE_PRIVATE_KEY;
+  let projectId = env?.FCM_PROJECT_ID || env?.PROJECT_ID || env?.FIREBASE_PROJECT_ID || 'nexus-satellite';
 
-  if (!clientEmail || !rawKey) {
-    throw new Error('FCM credentials missing. Please set FCM_CLIENT_EMAIL and FCM_PRIVATE_KEY_B64 in Cloudflare Worker Secrets.');
+  // Check if a full service account JSON was provided
+  const serviceAccountJson = env?.FIREBASE_SERVICE_ACCOUNT || env?.GOOGLE_APPLICATION_CREDENTIALS || env?.FCM_SERVICE_ACCOUNT || env?.SERVICE_ACCOUNT_JSON;
+  if (serviceAccountJson) {
+    try {
+      const parsed = typeof serviceAccountJson === 'string' ? JSON.parse(serviceAccountJson) : serviceAccountJson;
+      if (parsed.client_email) clientEmail = parsed.client_email;
+      if (parsed.private_key) rawKey = parsed.private_key;
+      if (parsed.project_id) projectId = parsed.project_id;
+    } catch (e) {}
   }
 
-  const cleanB64 = rawKey
-    .replace(/-----BEGIN PRIVATE KEY-----/g, '')
-    .replace(/-----END PRIVATE KEY-----/g, '')
+  if (!clientEmail || !rawKey) {
+    throw new Error('FCM credentials missing. Please verify FCM_CLIENT_EMAIL and FCM_PRIVATE_KEY in Cloudflare Pages Environment Variables (under Production).');
+  }
+
+  // Normalize PEM key / Base64 string
+  let cleanB64 = rawKey
+    .replace(/\\n/g, '')
+    .replace(/-----BEGIN [A-Z ]+-----/g, '')
+    .replace(/-----END [A-Z ]+-----/g, '')
     .replace(/[\r\n\s]/g, '');
 
   const u8 = b64ToUint8Array(cleanB64);
