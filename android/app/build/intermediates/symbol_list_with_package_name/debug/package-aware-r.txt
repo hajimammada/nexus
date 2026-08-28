@@ -3116,6 +3116,8 @@ id bottom
 id bounce
 id btnClearLogs
 id btnConnect
+id btnLinkDiscovered
+id btnScanLan
 id btnTestLock
 id btnTestPing
 id btnTestRestart
@@ -3124,6 +3126,7 @@ id btnTestUnlock
 id btnTestWol
 id buttonPanel
 id cancel_button
+id cardDiscoveredPc
 id cardPinInput
 id cardStatus
 id cardTargetInfo
@@ -3473,6 +3476,8 @@ id transition_position
 id transition_scene_layoutid_cache
 id transition_transform
 id triangle
+id tvDiscoveredIp
+id tvDiscoveredName
 id tvFooterVersion
 id tvLogs
 id tvStatus

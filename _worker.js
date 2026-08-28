@@ -419,6 +419,12 @@ export async function handleRequest(request, env) {
           for (const c of room.clients) {
             try { c.send(raw); } catch (e) {}
           }
+          // Forward Agent announcements and telemetry directly to Satellites as well
+          if (role === 'agent') {
+            for (const s of room.satellites) {
+              try { s.send(raw); } catch (e) {}
+            }
+          }
         }
       } catch (parseErr) {
         console.error('Relay message parse error:', parseErr);

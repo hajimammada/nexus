@@ -40,10 +40,13 @@ try {
     if (-not (Get-NetFirewallRule -Name "NexusAgentPort" -ErrorAction SilentlyContinue)) {
         New-NetFirewallRule -Name "NexusAgentPort" -DisplayName "Nexus PC Agent (Port 48880)" -Direction Inbound -Protocol TCP -LocalPort 48880 -Profile Domain,Private -Action Allow -ErrorAction SilentlyContinue | Out-Null
     }
+    if (-not (Get-NetFirewallRule -Name "NexusAgentDiscovery" -ErrorAction SilentlyContinue)) {
+        New-NetFirewallRule -Name "NexusAgentDiscovery" -DisplayName "Nexus PC Agent Discovery (UDP 48888)" -Direction Inbound -Protocol UDP -LocalPort 48888 -Profile Domain,Private -Action Allow -ErrorAction SilentlyContinue | Out-Null
+    }
     if (-not (Get-NetFirewallRule -Name "NexusOpenSSH" -ErrorAction SilentlyContinue)) {
         New-NetFirewallRule -Name "NexusOpenSSH" -DisplayName "OpenSSH Server (Port 22)" -Direction Inbound -Protocol TCP -LocalPort 22 -Profile Domain,Private -Action Allow -ErrorAction SilentlyContinue | Out-Null
     }
-    Write-Host "✓ Firewall ports 48880 and 22 verified" -ForegroundColor Green
+    Write-Host "✓ Firewall ports 48880, 48888 (UDP), and 22 verified" -ForegroundColor Green
 
     # 5. Install or Upgrade agent permanently to C:\ProgramData\NexusAgent
     $sourceAgentDir = Join-Path $PSScriptRoot "agent"

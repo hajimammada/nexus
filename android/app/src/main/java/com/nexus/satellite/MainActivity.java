@@ -54,6 +54,18 @@ public class MainActivity extends AppCompatActivity {
     private Button btnTestSleep;
     private Button btnTestRestart;
 
+    // Local LAN Auto-Discovery Components
+    private Button btnScanLan;
+    private LinearLayout cardDiscoveredPc;
+    private TextView tvDiscoveredName;
+    private TextView tvDiscoveredIp;
+    private Button btnLinkDiscovered;
+
+    private String discoveredIp = "";
+    private String discoveredMac = "";
+    private String discoveredHostname = "";
+    private String discoveredPin = "";
+
     // Diagnostic Console Log
     private TextView tvLogs;
     private ScrollView scrollLogs;
@@ -93,6 +105,27 @@ public class MainActivity extends AppCompatActivity {
         scrollLogs = findViewById(R.id.scrollLogs);
         btnClearLogs = findViewById(R.id.btnClearLogs);
 
+        // Local Wi-Fi Auto-Discovery UI
+        btnScanLan = findViewById(R.id.btnScanLan);
+        cardDiscoveredPc = findViewById(R.id.cardDiscoveredPc);
+        tvDiscoveredName = findViewById(R.id.tvDiscoveredName);
+        tvDiscoveredIp = findViewById(R.id.tvDiscoveredIp);
+        btnLinkDiscovered = findViewById(R.id.btnLinkDiscovered);
+
+        btnScanLan.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                scanLocalNetwork();
+            }
+        });
+
+        btnLinkDiscovered.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                linkDiscoveredPcDirectly();
+            }
+        });
+
         TextView tvFooter = findViewById(R.id.tvFooterVersion);
         if (tvFooter != null) {
             tvFooter.setText("Nexus Satellite v" + BuildConfig.VERSION_NAME + " • Direct LAN & Cloud Gateway");
@@ -102,11 +135,20 @@ public class MainActivity extends AppCompatActivity {
         loadSavedState();
         checkBatteryOptimization();
 
+        // Automatically scan local Wi-Fi on startup
+        scanLocalNetwork();
+
         android.content.BroadcastReceiver logReceiver = new android.content.BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
                 if (intent != null && intent.hasExtra("log")) {
                     appendLog(intent.getStringExtra("log"));
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            loadSavedState();
+                        }
+                    });
                 }
             }
         };
@@ -490,5 +532,150 @@ public class MainActivity extends AppCompatActivity {
                 }
             } catch (Exception ignored) {}
         }
+    }
+
+    private void scanLocalNetwork() {
+        appendLog("🔍 Scanning local Wi-Fi network for PC agents...");
+        btnScanLan.setEnabled(false);
+        btnScanLan.setText("SCANNING...");
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                boolean foundViaUdp = false;
+                try {
+                    java.net.DatagramSocket socket = new java.net.DatagramSocket();
+                    socket.setBroadcast(true);
+                    socket.setSoTimeout(2500);
+
+                    byte[] probe = "NEXUS_DISCOVERY_PING".getBytes();
+                    socket.send(new java.net.DatagramPacket(probe, probe.length, java.net.InetAddress.getByName("255.255.255.255"), 48888));
+                    try {
+                        socket.send(new java.net.DatagramPacket(probe, probe.length, java.net.InetAddress.getByName("192.168.100.255"), 48888));
+                    } catch (Exception ignored) {}
+
+                    byte[] buf = new byte[2048];
+                    java.net.DatagramPacket responsePacket = new java.net.DatagramPacket(buf, buf.length);
+                    socket.receive(responsePacket);
+
+                    String responseStr = new String(responsePacket.getData(), 0, responsePacket.getLength());
+                    JSONObject json = new JSONObject(responseStr);
+                    socket.close();
+
+                    final String host = json.optString("hostname", "Nexus-PC");
+                    final String ip = json.optString("ip", responsePacket.getAddress().getHostAddress());
+                    final String mac = json.optString("mac", "");
+                    final String pin = json.optString("pairCode", "");
+
+                    if (!ip.isEmpty() || !mac.isEmpty()) {
+                        foundViaUdp = true;
+                        discoveredHostname = host;
+                        discoveredIp = ip;
+                        discoveredMac = mac;
+                        discoveredPin = pin;
+
+                        mainHandler.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                btnScanLan.setEnabled(true);
+                                btnScanLan.setText("🔍 SCAN WI-FI");
+                                cardDiscoveredPc.setVisibility(View.VISIBLE);
+                                tvDiscoveredName.setText("💻 " + host + " (Found on Local Wi-Fi)");
+                                tvDiscoveredIp.setText("IP: " + ip + " • MAC: " + mac + (!pin.isEmpty() ? (" • PIN: " + pin) : ""));
+                                appendLog("🎉 Found local PC: " + host + " at " + ip + " (MAC: " + mac + ")!");
+                                Toast.makeText(MainActivity.this, "Found " + host + " on Wi-Fi!", Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                    }
+                } catch (Exception ignored) {}
+
+                if (!foundViaUdp) {
+                    probeSubnetHttp();
+                }
+            }
+        }).start();
+    }
+
+    private void probeSubnetHttp() {
+        String[] candidateIps = new String[]{"192.168.100.50", "192.168.1.50", "192.168.0.50", "127.0.0.1"};
+        boolean found = false;
+
+        for (final String ip : candidateIps) {
+            try {
+                Request req = new Request.Builder().url("http://" + ip + ":48880/api/pairing").build();
+                Response resp = httpClient.newCall(req).execute();
+                if (resp.isSuccessful() && resp.body() != null) {
+                    JSONObject json = new JSONObject(resp.body().string());
+                    final String host = json.optString("hostname", "PC");
+                    final String mac = json.optString("mac", "");
+                    final String pin = json.optString("pairCode", "");
+
+                    discoveredHostname = host;
+                    discoveredIp = ip;
+                    discoveredMac = mac;
+                    discoveredPin = pin;
+                    found = true;
+
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            btnScanLan.setEnabled(true);
+                            btnScanLan.setText("🔍 SCAN WI-FI");
+                            cardDiscoveredPc.setVisibility(View.VISIBLE);
+                            tvDiscoveredName.setText("💻 " + host + " (Found on Local Wi-Fi)");
+                            tvDiscoveredIp.setText("IP: " + ip + " • MAC: " + mac + (!pin.isEmpty() ? (" • PIN: " + pin) : ""));
+                            appendLog("🎉 Found local PC: " + host + " at " + ip + " (MAC: " + mac + ")!");
+                            Toast.makeText(MainActivity.this, "Found " + host + " on Wi-Fi!", Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                    break;
+                }
+            } catch (Exception ignored) {}
+        }
+
+        if (!found) {
+            mainHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    btnScanLan.setEnabled(true);
+                    btnScanLan.setText("🔍 SCAN WI-FI");
+                    appendLog("ℹ️ No new PC agents discovered yet. You can tap 'Scan Wi-Fi' or enter PIN manually.");
+                }
+            });
+        }
+    }
+
+    private void linkDiscoveredPcDirectly() {
+        if (discoveredIp.isEmpty() && discoveredMac.isEmpty()) {
+            Toast.makeText(this, "No PC discovered to link", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String pin = !discoveredPin.isEmpty() ? discoveredPin : "746255";
+        String roomId = "room_" + pin + "_pc";
+        String token = "token_" + pin;
+
+        SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
+        prefs.edit()
+                .putBoolean("paired", true)
+                .putString("currentPin", pin)
+                .putString("roomId", roomId)
+                .putString("token", token)
+                .putString("targetMac", discoveredMac)
+                .putString("targetIp", discoveredIp)
+                .putString("hostname", discoveredHostname)
+                .apply();
+
+        try {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().subscribeToTopic("nexus_" + pin);
+        } catch (Exception ignored) {}
+
+        btnLinkDiscovered.setText("LINKED!");
+        btnLinkDiscovered.setEnabled(false);
+        updateUiPaired(discoveredHostname, discoveredMac, discoveredIp);
+        appendLog("✅ 1-Tap Linked with " + discoveredHostname + " (" + discoveredIp + ")!");
+        Toast.makeText(this, "Linked with " + discoveredHostname + "!", Toast.LENGTH_SHORT).show();
+
+        RelayService.startService(this, roomId, token, discoveredMac, discoveredIp, relayUrl);
     }
 }

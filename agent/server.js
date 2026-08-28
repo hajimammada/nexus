@@ -524,7 +524,7 @@ setInterval(() => {
 // Local REST Endpoints (Local Wi-Fi Access)
 // -------------------------------------------------------------
 app.get('/api/ping', (req, res) => {
-  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '3.9.2' });
+  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '3.9.3' });
 });
 
 app.get('/api/pairing', (req, res) => {
@@ -655,6 +655,38 @@ function formatUptime(seconds) {
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
 }
+
+// -------------------------------------------------------------
+// Local LAN UDP Auto-Discovery Responder (Port 48888)
+// -------------------------------------------------------------
+const dgram = require('dgram');
+const udpServer = dgram.createSocket('udp4');
+
+udpServer.on('message', (msg, rinfo) => {
+  const net = getPrimaryNetworkInfo();
+  const responsePayload = JSON.stringify({
+    type: 'NEXUS_DISCOVERY_PONG',
+    hostname: os.hostname(),
+    ip: net.ip,
+    mac: net.mac,
+    pairCode: activePairCode,
+    port: PORT,
+    version: '3.9.3'
+  });
+  udpServer.send(responsePayload, rinfo.port, rinfo.address, (err) => {
+    if (!err) {
+      console.log(`[UDP-DISCOVERY] Responded to discovery probe from ${rinfo.address}:${rinfo.port}`);
+    }
+  });
+});
+
+udpServer.on('error', (err) => {
+  console.warn('[UDP-DISCOVERY] Error:', err.message);
+});
+
+udpServer.bind(48888, '0.0.0.0', () => {
+  console.log('📡 Local UDP Discovery Responder active on 0.0.0.0:48888');
+});
 
 app.listen(PORT, '0.0.0.0', () => {
   const net = getPrimaryNetworkInfo();

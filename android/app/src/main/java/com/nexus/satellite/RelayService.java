@@ -159,8 +159,40 @@ public class RelayService extends Service {
                 try {
                     JSONObject json = new JSONObject(text);
                     Log.i(TAG, "Received WebSocket Command: " + text);
+                    String type = json.optString("type", "");
 
-                    if ("EXECUTE".equals(json.optString("type"))) {
+                    if ("AGENT_ONLINE".equals(type) || "TELEMETRY".equals(type) || "ANNOUNCE".equals(type)) {
+                        JSONObject tele = json.optJSONObject("telemetry");
+                        String incomingIp = json.optString("localIp", json.optString("ip", ""));
+                        String incomingMac = json.optString("mac", json.optString("targetMac", ""));
+                        String incomingHostname = json.optString("hostname", tele != null ? tele.optString("hostname", "PC") : "PC");
+                        String incomingKey = json.optString("agentKey", "");
+
+                        if (!incomingIp.isEmpty() || !incomingMac.isEmpty()) {
+                            SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
+                            SharedPreferences.Editor editor = prefs.edit();
+                            if (!incomingIp.isEmpty()) {
+                                targetIp = incomingIp;
+                                editor.putString("targetIp", incomingIp);
+                            }
+                            if (!incomingMac.isEmpty()) {
+                                targetMac = incomingMac;
+                                editor.putString("targetMac", incomingMac);
+                            }
+                            if (!incomingHostname.isEmpty()) {
+                                editor.putString("hostname", incomingHostname);
+                            }
+                            if (!incomingKey.isEmpty()) {
+                                editor.putString("agentKey", incomingKey);
+                            }
+                            editor.putBoolean("paired", true);
+                            editor.apply();
+
+                            Intent logIntent = new Intent("com.nexus.satellite.LOG_EVENT");
+                            logIntent.putExtra("log", "💻 PC Discovered via WebSocket: " + incomingHostname + " (IP: " + incomingIp + ", MAC: " + incomingMac + ")");
+                            sendBroadcast(logIntent);
+                        }
+                    } else if ("EXECUTE".equals(type)) {
                         executeIncomingCommand(json);
                     }
                 } catch (Exception e) {

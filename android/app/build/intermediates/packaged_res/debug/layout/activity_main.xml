@@ -59,7 +59,85 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <!-- PIN Input Box -->
+        <!-- LAN Auto-Discovery Section -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="14dp"
+            android:background="#0D1322"
+            android:orientation="vertical"
+            android:padding="12dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="LOCAL WI-FI DISCOVERY"
+                    android:textColor="#38BDF8"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btnScanLan"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:background="#0284C7"
+                    android:minWidth="90dp"
+                    android:text="🔍 SCAN WI-FI"
+                    android:textColor="#FFFFFF"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <!-- Discovered PC Result Card -->
+            <LinearLayout
+                android:id="@+id/cardDiscoveredPc"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="#131C31"
+                android:orientation="vertical"
+                android:padding="10dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tvDiscoveredName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="💻 hajimaPC (Discovered)"
+                    android:textColor="#10B981"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvDiscoveredIp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="IP: 192.168.100.50 • MAC: 74:56:3C:48:E0:7F"
+                    android:textColor="#94A3B8"
+                    android:textSize="11sp" />
+
+                <Button
+                    android:id="@+id/btnLinkDiscovered"
+                    android:layout_width="match_parent"
+                    android:layout_height="38dp"
+                    android:layout_marginTop="8dp"
+                    android:background="#10B981"
+                    android:text="⚡ 1-TAP LINK THIS PC"
+                    android:textColor="#080B12"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- PIN Input Box (Or Manual Fallback) -->
         <LinearLayout
             android:id="@+id/cardPinInput"
             android:layout_width="match_parent"
@@ -70,7 +148,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="4dp"
-                android:text="6-DIGIT PAIRING PIN FROM PC"
+                android:text="OR ENTER 6-DIGIT PIN MANUALLY"
                 android:textColor="#94A3B8"
                 android:textSize="10sp"
                 android:textStyle="bold" />
