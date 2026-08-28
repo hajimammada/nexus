@@ -3115,7 +3115,6 @@ id blocking
 id bottom
 id bounce
 id btnClearLogs
-id btnConnect
 id btnLinkDiscovered
 id btnScanLan
 id btnTestLock
@@ -3124,10 +3123,10 @@ id btnTestRestart
 id btnTestSleep
 id btnTestUnlock
 id btnTestWol
+id btnUnlink
 id buttonPanel
 id cancel_button
 id cardDiscoveredPc
-id cardPinInput
 id cardStatus
 id cardTargetInfo
 id center
@@ -3197,7 +3196,6 @@ id end
 id endToStart
 id enterAlways
 id enterAlwaysCollapsed
-id etPin
 id exitUntilCollapsed
 id expand_activities_button
 id expanded_menu

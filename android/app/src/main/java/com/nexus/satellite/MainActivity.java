@@ -37,14 +37,13 @@ import okhttp3.Response;
 
 public class MainActivity extends AppCompatActivity {
 
-    private EditText etPin;
-    private Button btnConnect;
     private TextView tvStatus;
     private View dotStatus;
     private LinearLayout cardTargetInfo;
     private TextView tvTargetName;
     private TextView tvTargetIp;
     private TextView tvTargetMac;
+    private Button btnUnlink;
 
     // Direct LAN Control Buttons
     private Button btnTestPing;
@@ -85,14 +84,13 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        etPin = findViewById(R.id.etPin);
-        btnConnect = findViewById(R.id.btnConnect);
         tvStatus = findViewById(R.id.tvStatus);
         dotStatus = findViewById(R.id.dotStatus);
         cardTargetInfo = findViewById(R.id.cardTargetInfo);
         tvTargetName = findViewById(R.id.tvTargetName);
         tvTargetIp = findViewById(R.id.tvTargetIp);
         tvTargetMac = findViewById(R.id.tvTargetMac);
+        btnUnlink = findViewById(R.id.btnUnlink);
 
         btnTestPing = findViewById(R.id.btnTestPing);
         btnTestWol = findViewById(R.id.btnTestWol);
@@ -125,6 +123,26 @@ public class MainActivity extends AppCompatActivity {
                 linkDiscoveredPcDirectly();
             }
         });
+
+        if (btnUnlink != null) {
+            btnUnlink.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
+                    String oldPin = prefs.getString("currentPin", "");
+                    if (oldPin != null && !oldPin.isEmpty()) {
+                        try {
+                            com.google.firebase.messaging.FirebaseMessaging.getInstance().unsubscribeFromTopic("nexus_" + oldPin);
+                        } catch (Exception ignored) {}
+                    }
+                    prefs.edit().clear().apply();
+                    updateUiUnpaired();
+                    appendLog("🔌 Unlinked from PC. Scanning Wi-Fi for local devices...");
+                    Toast.makeText(MainActivity.this, "Unlinked from PC", Toast.LENGTH_SHORT).show();
+                    scanLocalNetwork();
+                }
+            });
+        }
 
         TextView tvFooter = findViewById(R.id.tvFooterVersion);
         if (tvFooter != null) {
@@ -163,18 +181,6 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 tvLogs.setText("");
-            }
-        });
-
-        btnConnect.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                String pin = etPin.getText().toString().trim().replaceAll("[^0-9]", "");
-                if (pin.length() != 6) {
-                    Toast.makeText(MainActivity.this, "Please enter a valid 6-digit PIN", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                claimPinAndStartService(pin, 1);
             }
         });
 
@@ -357,152 +363,8 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void claimPinAndStartService(final String pin, final int attempt) {
-        btnConnect.setEnabled(false);
-        btnConnect.setText(attempt > 1 ? "RETRYING (" + attempt + "/3)..." : "CONNECTING...");
-        appendLog("🔗 Claiming PIN [" + pin + "] from Cloud Relay (Attempt " + attempt + "/3)...");
-
-        try {
-            JSONObject json = new JSONObject();
-            json.put("pairCode", pin);
-            MediaType mediaType = MediaType.parse("application/json; charset=utf-8");
-            RequestBody body = RequestBody.create(mediaType, json.toString());
-            Request request = new Request.Builder()
-                    .url(relayUrl + "/api/pair/claim")
-                    .addHeader("User-Agent", "Nexus-Android-Satellite/" + BuildConfig.VERSION_NAME)
-                    .post(body)
-                    .build();
-
-            httpClient.newCall(request).enqueue(new Callback() {
-                @Override
-                public void onFailure(Call call, final IOException e) {
-                    if (attempt < 3) {
-                        mainHandler.postDelayed(new Runnable() {
-                            @Override
-                            public void run() {
-                                claimPinAndStartService(pin, attempt + 1);
-                            }
-                        }, 1500);
-                        return;
-                    }
-                    mainHandler.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            btnConnect.setEnabled(true);
-                            btnConnect.setText("CONNECT & START 24/7 RELAY");
-                            appendLog("❌ Pairing Network Error: " + e.getMessage());
-                            Toast.makeText(MainActivity.this, "Network error: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                        }
-                    });
-                }
-
-                @Override
-                public void onResponse(Call call, Response response) throws IOException {
-                    final String resStr = response.body() != null ? response.body().string() : "";
-                    try {
-                        final JSONObject resJson = new JSONObject(resStr);
-                        if (resJson.optBoolean("success", false)) {
-                            final String targetMac = resJson.optString("targetMac", "");
-                            final String targetIp = resJson.optString("targetIp", "");
-
-                            if (targetIp.isEmpty() && targetMac.isEmpty()) {
-                                final String errMsg = "PIN [" + pin + "] is not registered on any active PC.";
-                                mainHandler.post(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        btnConnect.setEnabled(true);
-                                        btnConnect.setText("CONNECT & START 24/7 RELAY");
-                                        appendLog("❌ Pairing Failed: " + errMsg);
-                                        Toast.makeText(MainActivity.this, errMsg, Toast.LENGTH_LONG).show();
-                                    }
-                                });
-                                return;
-                            }
-
-                            final String roomId = resJson.getString("roomId");
-                            final String token = resJson.getString("token");
-                            final String hostname = resJson.optString("hostname", "PC");
-                            final String agentKey = resJson.optString("agentKey", "");
-
-                            SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
-                            String oldPin = prefs.getString("currentPin", "");
-                            if (oldPin != null && !oldPin.isEmpty()) {
-                                try {
-                                    com.google.firebase.messaging.FirebaseMessaging.getInstance().unsubscribeFromTopic("nexus_" + oldPin);
-                                } catch (Exception ignored) {}
-                            }
-                            try {
-                                com.google.firebase.messaging.FirebaseMessaging.getInstance().subscribeToTopic("nexus_" + pin);
-                                appendLog("📡 Subscribed to private FCM topic: nexus_" + pin);
-                            } catch (Exception ignored) {}
-
-                            prefs.edit()
-                                    .putBoolean("paired", true)
-                                    .putString("currentPin", pin)
-                                    .putString("roomId", roomId)
-                                    .putString("token", token)
-                                    .putString("targetMac", targetMac)
-                                    .putString("targetIp", targetIp)
-                                    .putString("hostname", hostname)
-                                    .putString("agentKey", agentKey)
-                                    .apply();
-
-                            mainHandler.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    btnConnect.setEnabled(true);
-                                    btnConnect.setText("CONNECTED & ACTIVE");
-                                    updateUiPaired(hostname, targetMac, targetIp);
-                                    appendLog("🎉 Successfully paired with " + hostname + " (IP: " + targetIp + ")!");
-                                    Toast.makeText(MainActivity.this, "Linked with " + hostname + "!", Toast.LENGTH_SHORT).show();
-                                }
-                            });
-
-                            RelayService.startService(MainActivity.this, roomId, token, targetMac, targetIp, relayUrl);
-                        } else {
-                            if (attempt < 3 && (resStr.contains("not found") || resStr.contains("offline"))) {
-                                mainHandler.postDelayed(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        claimPinAndStartService(pin, attempt + 1);
-                                    }
-                                }, 1500);
-                                return;
-                            }
-                            final String errorMsg = resJson.optString("error", "Invalid or unregistered Pairing PIN.");
-                            mainHandler.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    btnConnect.setEnabled(true);
-                                    btnConnect.setText("CONNECT & START 24/7 RELAY");
-                                    appendLog("❌ Pairing Failed: " + errorMsg);
-                                    Toast.makeText(MainActivity.this, errorMsg, Toast.LENGTH_LONG).show();
-                                }
-                            });
-                        }
-                    } catch (Exception e) {
-                        mainHandler.post(new Runnable() {
-                            @Override
-                            public void run() {
-                                btnConnect.setEnabled(true);
-                                btnConnect.setText("CONNECT & START 24/7 RELAY");
-                                appendLog("❌ JSON Parse Error: " + e.getMessage());
-                                Toast.makeText(MainActivity.this, "Invalid response from server", Toast.LENGTH_LONG).show();
-                            }
-                        });
-                    }
-                }
-            });
-        } catch (Exception e) {
-            btnConnect.setEnabled(true);
-            btnConnect.setText("CONNECT & START 24/7 RELAY");
-            appendLog("❌ General Error: " + e.getMessage());
-            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        }
-    }
-
     private void updateUiPaired(String hostname, String mac, String ip) {
-        tvStatus.setText("ONLINE • 24/7 HOME RELAY & LAN SUITE");
+        tvStatus.setText("ONLINE • 24/7 HOME RELAY LINKED");
         tvStatus.setTextColor(Color.parseColor("#10B981"));
         dotStatus.setBackgroundColor(Color.parseColor("#10B981"));
 
@@ -510,10 +372,13 @@ public class MainActivity extends AppCompatActivity {
         tvTargetName.setText("Target: " + (hostname.isEmpty() ? "PC" : hostname));
         tvTargetIp.setText("LAN IP: " + ip + ":48880");
         tvTargetMac.setText("Target MAC: " + mac);
+        if (cardDiscoveredPc != null) {
+            cardDiscoveredPc.setVisibility(View.GONE);
+        }
     }
 
     private void updateUiUnpaired() {
-        tvStatus.setText("NOT PAIRED • ENTER 6-DIGIT PIN");
+        tvStatus.setText("READY • SCAN WI-FI TO LINK PC");
         tvStatus.setTextColor(Color.parseColor("#94A3B8"));
         dotStatus.setBackgroundColor(Color.parseColor("#94A3B8"));
 

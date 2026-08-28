@@ -9,7 +9,6 @@ color slate_800
 color slate_900
 color white
 id btnClearLogs
-id btnConnect
 id btnLinkDiscovered
 id btnScanLan
 id btnTestLock
@@ -18,12 +17,11 @@ id btnTestRestart
 id btnTestSleep
 id btnTestUnlock
 id btnTestWol
+id btnUnlink
 id cardDiscoveredPc
-id cardPinInput
 id cardStatus
 id cardTargetInfo
 id dotStatus
-id etPin
 id scrollLogs
 id tvDiscoveredIp
 id tvDiscoveredName
