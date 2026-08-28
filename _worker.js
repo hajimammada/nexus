@@ -87,6 +87,15 @@ export async function handleRequest(request, env) {
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
   };
 
+  // 1b. Debug /api/debug/env (Inspect presence of configured secrets)
+  if (url.pathname === '/api/debug/env' && request.method === 'GET') {
+    const keys = env ? Object.keys(env) : [];
+    return new Response(JSON.stringify({ 
+      hasEnv: Boolean(env), 
+      keys: keys.map(k => ({ name: k, length: env[k] ? String(env[k]).length : 0 })) 
+    }), { headers: corsHeaders });
+  }
+
   cleanExpiredData();
 
   // 2. POST /api/pair/create or /api/pair/register (PC Agent Heartbeat & Telemetry Ingestion)
