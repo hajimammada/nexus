@@ -291,7 +291,7 @@ let relayWs = null;
 let telemetryInterval = null;
 let heartbeatInterval = null;
 
-async function registerAndConnectRelay() {
+async function registerAndConnectRelay(previousPairCode = null) {
   const net = getPrimaryNetworkInfo();
   console.log(`[RELAY] Registering with Cloudflare Relay Hub: ${RELAY_URL}...`);
 
@@ -301,6 +301,7 @@ async function registerAndConnectRelay() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         pairCode: activePairCode,
+        previousPairCode,
         roomId: activeRoomId,
         token: activeToken,
         mac: net.mac,
@@ -509,7 +510,7 @@ setInterval(() => {
 // Local REST Endpoints (Local Wi-Fi Access)
 // -------------------------------------------------------------
 app.get('/api/ping', (req, res) => {
-  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '3.8.0' });
+  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '3.8.1' });
 });
 
 app.get('/api/pairing', (req, res) => {
@@ -539,6 +540,7 @@ app.post('/api/pairing/reset', async (req, res) => {
     }
   }
 
+  const oldPairCode = activePairCode;
   const newPairCode = Math.floor(100000 + Math.random() * 900000).toString();
   activePairCode = newPairCode;
   activeRoomId = `room_${newPairCode}_pc`;
@@ -559,7 +561,7 @@ app.post('/api/pairing/reset', async (req, res) => {
     relayWs = null;
   }
 
-  await registerAndConnectRelay();
+  await registerAndConnectRelay(oldPairCode);
   const net = getPrimaryNetworkInfo();
   res.json({
     success: true,

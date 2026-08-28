@@ -90,6 +90,19 @@ export async function handleRequest(request, env) {
       const token = reqToken || crypto.randomUUID();
 
       const existing = activePairings.get(pairCode) || {};
+
+      // Automatically purge older pairings belonging to the exact same machine
+      if (body.previousPairCode && body.previousPairCode !== pairCode) {
+        activePairings.delete(body.previousPairCode);
+        pendingCommands.delete(body.previousPairCode);
+      }
+      for (const [oldCode, data] of activePairings.entries()) {
+        if (oldCode !== pairCode && ((agentKey && data.agentKey === agentKey) || (mac && data.mac && data.mac === mac))) {
+          activePairings.delete(oldCode);
+          pendingCommands.delete(oldCode);
+        }
+      }
+
       const pairData = {
         pairCode,
         roomId,
