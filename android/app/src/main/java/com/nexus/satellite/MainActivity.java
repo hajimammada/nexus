@@ -128,6 +128,8 @@ public class MainActivity extends AppCompatActivity {
             btnUnlink.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
+                    RelayService.stopService(MainActivity.this);
+
                     SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
                     String oldPin = prefs.getString("currentPin", "");
                     if (oldPin != null && !oldPin.isEmpty()) {
@@ -136,6 +138,12 @@ public class MainActivity extends AppCompatActivity {
                         } catch (Exception ignored) {}
                     }
                     prefs.edit().clear().apply();
+
+                    discoveredHostname = "";
+                    discoveredIp = "";
+                    discoveredMac = "";
+                    discoveredPin = "";
+
                     updateUiUnpaired();
                     appendLog("🔌 Unlinked from PC. Scanning Wi-Fi for local devices...");
                     Toast.makeText(MainActivity.this, "Unlinked from PC", Toast.LENGTH_SHORT).show();
@@ -383,9 +391,13 @@ public class MainActivity extends AppCompatActivity {
         dotStatus.setBackgroundColor(Color.parseColor("#94A3B8"));
 
         cardTargetInfo.setVisibility(View.GONE);
-        tvTargetName.setText("Target: No PC Linked");
-        tvTargetIp.setText("LAN IP: Not Linked");
-        tvTargetMac.setText("Target MAC: Not Linked");
+        if (cardDiscoveredPc != null) {
+            cardDiscoveredPc.setVisibility(View.GONE);
+        }
+        if (btnLinkDiscovered != null) {
+            btnLinkDiscovered.setText("⚡ 1-TAP LINK THIS PC");
+            btnLinkDiscovered.setEnabled(true);
+        }
     }
 
     private void checkBatteryOptimization() {
@@ -439,16 +451,22 @@ public class MainActivity extends AppCompatActivity {
                         discoveredMac = mac;
                         discoveredPin = pin;
 
+                        SharedPreferences currentPrefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
+                        final boolean alreadyPaired = currentPrefs.getBoolean("paired", false);
+
                         mainHandler.post(new Runnable() {
                             @Override
                             public void run() {
                                 btnScanLan.setEnabled(true);
                                 btnScanLan.setText("🔍 SCAN WI-FI");
-                                cardDiscoveredPc.setVisibility(View.VISIBLE);
-                                tvDiscoveredName.setText("💻 " + host + " (Found on Local Wi-Fi)");
-                                tvDiscoveredIp.setText("IP: " + ip + " • MAC: " + mac + (!pin.isEmpty() ? (" • PIN: " + pin) : ""));
+                                if (!alreadyPaired) {
+                                    cardDiscoveredPc.setVisibility(View.VISIBLE);
+                                    btnLinkDiscovered.setText("⚡ 1-TAP LINK THIS PC");
+                                    btnLinkDiscovered.setEnabled(true);
+                                    tvDiscoveredName.setText("💻 " + host + " (Found on Local Wi-Fi)");
+                                    tvDiscoveredIp.setText("IP: " + ip + " • MAC: " + mac);
+                                }
                                 appendLog("🎉 Found local PC: " + host + " at " + ip + " (MAC: " + mac + ")!");
-                                Toast.makeText(MainActivity.this, "Found " + host + " on Wi-Fi!", Toast.LENGTH_SHORT).show();
                             }
                         });
                     }
@@ -481,16 +499,22 @@ public class MainActivity extends AppCompatActivity {
                     discoveredPin = pin;
                     found = true;
 
+                    SharedPreferences currentPrefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
+                    final boolean alreadyPaired = currentPrefs.getBoolean("paired", false);
+
                     mainHandler.post(new Runnable() {
                         @Override
                         public void run() {
                             btnScanLan.setEnabled(true);
                             btnScanLan.setText("🔍 SCAN WI-FI");
-                            cardDiscoveredPc.setVisibility(View.VISIBLE);
-                            tvDiscoveredName.setText("💻 " + host + " (Found on Local Wi-Fi)");
-                            tvDiscoveredIp.setText("IP: " + ip + " • MAC: " + mac + (!pin.isEmpty() ? (" • PIN: " + pin) : ""));
+                            if (!alreadyPaired) {
+                                cardDiscoveredPc.setVisibility(View.VISIBLE);
+                                btnLinkDiscovered.setText("⚡ 1-TAP LINK THIS PC");
+                                btnLinkDiscovered.setEnabled(true);
+                                tvDiscoveredName.setText("💻 " + host + " (Found on Local Wi-Fi)");
+                                tvDiscoveredIp.setText("IP: " + ip + " • MAC: " + mac);
+                            }
                             appendLog("🎉 Found local PC: " + host + " at " + ip + " (MAC: " + mac + ")!");
-                            Toast.makeText(MainActivity.this, "Found " + host + " on Wi-Fi!", Toast.LENGTH_SHORT).show();
                         }
                     });
                     break;
@@ -504,7 +528,7 @@ public class MainActivity extends AppCompatActivity {
                 public void run() {
                     btnScanLan.setEnabled(true);
                     btnScanLan.setText("🔍 SCAN WI-FI");
-                    appendLog("ℹ️ No new PC agents discovered yet. You can tap 'Scan Wi-Fi' or enter PIN manually.");
+                    appendLog("ℹ️ No new PC agents discovered yet. You can tap 'Scan Wi-Fi' to refresh.");
                 }
             });
         }

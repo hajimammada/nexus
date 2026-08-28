@@ -170,6 +170,10 @@ public class RelayService extends Service {
 
                         if (!incomingIp.isEmpty() || !incomingMac.isEmpty()) {
                             SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
+                            boolean isPaired = prefs.getBoolean("paired", false);
+                            if (!isPaired) {
+                                return;
+                            }
                             SharedPreferences.Editor editor = prefs.edit();
                             if (!incomingIp.isEmpty()) {
                                 targetIp = incomingIp;
@@ -185,7 +189,6 @@ public class RelayService extends Service {
                             if (!incomingKey.isEmpty()) {
                                 editor.putString("agentKey", incomingKey);
                             }
-                            editor.putBoolean("paired", true);
                             editor.apply();
 
                             Intent logIntent = new Intent("com.nexus.satellite.LOG_EVENT");
