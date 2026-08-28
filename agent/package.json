@@ -1,6 +1,6 @@
 {
   "name": "nexus-pc-agent",
-  "version": "4.0.6",
+  "version": "5.0.0",
   "description": "Background power and telemetry companion daemon for Nexus Command Center",
   "main": "server.js",
   "scripts": {

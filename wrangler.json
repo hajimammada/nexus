@@ -6,5 +6,11 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application"
-  }
+  },
+  "kv_namespaces": [
+    {
+      "binding": "NEXUS_KV",
+      "id": "0a59aa218f3b41c1a7e6755490004e4e"
+    }
+  ]
 }

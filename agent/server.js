@@ -210,10 +210,12 @@ async function executeLock() {
   logAction(`[POWER] Disconnecting session ${sess.id} (${sess.state}) to lock console...`);
   exec(`tsdiscon ${sess.id}`, (err) => {
     if (err) {
-      logAction(`[POWER] tsdiscon fallback: ${err.message}`);
+      logAction(`[POWER] tsdiscon failed: ${err.message}, trying LockWorkStation fallback...`);
+      exec('rundll32.exe user32.dll,LockWorkStation');
+    } else {
+      logAction(`[POWER] Session ${sess.id} disconnected (locked) successfully.`);
     }
   });
-  exec('rundll32.exe user32.dll,LockWorkStation');
 }
 
 async function executeUnlock() {
@@ -491,14 +493,29 @@ function connectRelayWs() {
             }
           } else if (act === 'LOCK') {
             executeLock();
+            if (relayWs && relayWs.readyState === WebSocket.OPEN) {
+              relayWs.send(JSON.stringify({ type: 'ACTION_RESPONSE', action: act, reqId: msg.reqId, success: true, message: 'LOCK executed successfully on PC!' }));
+            }
           } else if (act === 'UNLOCK') {
             executeUnlock();
+            if (relayWs && relayWs.readyState === WebSocket.OPEN) {
+              relayWs.send(JSON.stringify({ type: 'ACTION_RESPONSE', action: act, reqId: msg.reqId, success: true, message: 'UNLOCK executed successfully on PC!' }));
+            }
           } else if (act === 'SLEEP') {
             executeSleep();
+            if (relayWs && relayWs.readyState === WebSocket.OPEN) {
+              relayWs.send(JSON.stringify({ type: 'ACTION_RESPONSE', action: act, reqId: msg.reqId, success: true, message: 'SLEEP executed successfully on PC!' }));
+            }
           } else if (act === 'RESTART') {
             executeRestart();
+            if (relayWs && relayWs.readyState === WebSocket.OPEN) {
+              relayWs.send(JSON.stringify({ type: 'ACTION_RESPONSE', action: act, reqId: msg.reqId, success: true, message: 'RESTART executed successfully on PC!' }));
+            }
           } else if (act === 'SHUTDOWN') {
             executeShutdown();
+            if (relayWs && relayWs.readyState === WebSocket.OPEN) {
+              relayWs.send(JSON.stringify({ type: 'ACTION_RESPONSE', action: act, reqId: msg.reqId, success: true, message: 'SHUTDOWN executed successfully on PC!' }));
+            }
           } else if (act === 'TERMINAL') {
             const command = msg.payload?.command || msg.command;
             const result = await executeTerminal(command);
@@ -549,7 +566,7 @@ setInterval(() => {
 // Local REST Endpoints (Local Wi-Fi Access)
 // -------------------------------------------------------------
 app.get('/api/ping', (req, res) => {
-  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '4.0.6' });
+  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '5.0.0' });
 });
 
 app.get('/api/pairing', (req, res) => {
@@ -697,7 +714,7 @@ udpServer.on('message', (msg, rinfo) => {
     pairCode: activePairCode,
     agentKey: AGENT_KEY,
     port: PORT,
-    version: '4.0.6'
+    version: '5.0.0'
   });
   udpServer.send(responsePayload, rinfo.port, rinfo.address, (err) => {
     if (!err) {

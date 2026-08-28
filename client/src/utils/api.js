@@ -64,34 +64,17 @@ export async function claimPairCode(pairCode, relayUrl = null) {
         pairCode: data.pairCode || cleanCode,
         targetMac: data.targetMac || '',
         targetIp: data.targetIp || '',
-        hostname: data.hostname || 'hajimaPC',
+        hostname: data.hostname || '',
         agentKey: data.agentKey || ''
       };
     }
-    if (data && data.error) {
-      throw new Error(data.error);
-    }
+    throw new Error(data?.error || `PIN [${cleanCode}] not found. Make sure your PC agent is running.`);
   } catch (e) {
-    if (e.message && !e.message.includes('Failed to fetch') && !e.message.includes('fetch')) {
-      throw e;
+    if (e.message && e.message.includes('Failed to fetch')) {
+      throw new Error('Cannot reach Nexus relay server. Check your internet connection.');
     }
+    throw e;
   }
-
-  // Guaranteed fallback for 6-digit PIN
-  if (cleanCode.length >= 6) {
-    return {
-      relayUrl: baseRelay,
-      roomId: `room_${cleanCode}_pc`,
-      token: `token_${cleanCode}`,
-      pairCode: cleanCode,
-      targetMac: '74:56:3C:48:E0:7F',
-      targetIp: '192.168.100.50',
-      hostname: 'hajimaPC',
-      agentKey: ''
-    };
-  }
-
-  throw new Error('Invalid 6-digit PIN. Please enter a valid PIN.');
 }
 
 // -------------------------------------------------------------
@@ -161,12 +144,14 @@ export class RelayManager {
       this.ws.onclose = () => {
         this.isConnected = false;
         this.onStateChange({ online: false, source: 'relay' });
-        this.scheduleReconnect();
+        if (!this._intentionalClose) {
+          this.scheduleReconnect();
+        }
       };
 
       this.ws.onerror = () => {
         this.isConnected = false;
-        this.ws.close();
+        if (this.ws) this.ws.close();
       };
     } catch (e) {
       this.scheduleReconnect();
@@ -175,7 +160,10 @@ export class RelayManager {
 
   scheduleReconnect() {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.reconnectTimer = setTimeout(() => this.connect(), 4000);
+    this.reconnectTimer = setTimeout(() => {
+      this._intentionalClose = false;
+      this.connect();
+    }, 4000);
   }
 
   sendCommand(action, subAction = null, payload = {}) {
@@ -195,6 +183,7 @@ export class RelayManager {
   }
 
   disconnect() {
+    this._intentionalClose = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.ws) {
       this.ws.close();

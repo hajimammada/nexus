@@ -1,15 +1,9 @@
 // =========================================================================
-// Nexus Cloud Relay & Multi-Tenant Edge Signaling Hub (Cloudflare Worker & Pages)
-// Supports:
-// 1. Zero-Configuration 6-Digit Pairing & Telemetry Cache
-// 2. Real-Time WebSocket Rooms (Clients, Satellites, PC Agents)
-// 3. Resilient Dual-Channel HTTP Command Dispatch & Heartbeat Polling
+// Nexus Cloud Relay & Multi-Tenant Edge Signaling Hub (Cloudflare Worker)
+// KV-BACKED EDITION
 // =========================================================================
 
-const activePairings = new Map();  // pairCode -> { mac, localIp, hostname, agentKey, roomId, token, telemetry, lastSeen }
 const activeRooms = new Map();     // roomId -> { clients: Set, satellites: Set, agents: Set, config: Object }
-const pendingCommands = new Map(); // pairCode -> Array of pending commands
-const commandResults = new Map();  // reqId -> result
 const ipRateLimits = new Map();    // ip -> { count: number, resetAt: number, blockedUntil: number }
 
 function checkRateLimit(ip, maxAttempts = 15, windowMs = 60000, blockDurationMs = 180000) {
@@ -32,12 +26,6 @@ function checkRateLimit(ip, maxAttempts = 15, windowMs = 60000, blockDurationMs 
 
 function cleanExpiredData() {
   const now = Date.now();
-  for (const [code, data] of activePairings.entries()) {
-    if (now - (data.lastSeen || data.createdAt) > 3600 * 1000) {
-      activePairings.delete(code);
-      pendingCommands.delete(code);
-    }
-  }
   for (const [ip, rec] of ipRateLimits.entries()) {
     if (now > rec.resetAt && now > rec.blockedUntil) {
       ipRateLimits.delete(ip);
@@ -49,10 +37,17 @@ function generatePairCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+const corsHeaders = {
+  'Content-Type': 'application/json',
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-agent-key, x-pair-code'
+};
+
 export async function handleRequest(request, env) {
   const url = new URL(request.url);
 
-  // Pass through non-API requests to static assets in Cloudflare Pages (with zero cache on downloads)
+  // Pass through non-API requests to static assets in Cloudflare Pages
   if (!url.pathname.startsWith('/api') && env && env.ASSETS && request.method === 'GET') {
     const assetRes = await env.ASSETS.fetch(request);
     if (url.pathname.includes('/download/') || url.pathname.endsWith('.apk') || url.pathname.endsWith('.zip')) {
@@ -69,7 +64,7 @@ export async function handleRequest(request, env) {
     return assetRes;
   }
 
-  // 1. CORS Preflight
+  // CORS Preflight
   if (request.method === 'OPTIONS') {
     return new Response(null, {
       headers: {
@@ -81,53 +76,37 @@ export async function handleRequest(request, env) {
     });
   }
 
-  const corsHeaders = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
-  };
-
-  // 1b. Debug /api/debug/env (Inspect presence of configured secrets)
-  if (url.pathname === '/api/debug/env' && request.method === 'GET') {
-    const keys = env ? Object.keys(env) : [];
-    return new Response(JSON.stringify({ 
-      hasEnv: Boolean(env), 
-      keys: keys.map(k => ({ name: k, length: env[k] ? String(env[k]).length : 0 })) 
-    }), { headers: corsHeaders });
-  }
-
   cleanExpiredData();
 
-  // 2. POST /api/pair/create or /api/pair/register (PC Agent Heartbeat & Telemetry Ingestion)
+  if (!env || !env.NEXUS_KV) {
+    return new Response(JSON.stringify({ success: false, error: 'KV Binding NEXUS_KV not found' }), { status: 500, headers: corsHeaders });
+  }
+
+  // 1. POST /api/pair/create or /api/pair/register
   if ((url.pathname === '/api/pair/create' || url.pathname === '/api/pair/register') && request.method === 'POST') {
     try {
       const body = await request.json();
       const { mac = '', localIp = '', hostname = 'Nexus-PC', agentKey = '', pcName = '', roomId: reqRoomId, token: reqToken, telemetry = null } = body;
       
       let pairCode = (body.pairCode || '').trim();
+      
+      let existing = null;
+      if (pairCode) {
+        existing = await env.NEXUS_KV.get(`pair:${pairCode}`, { type: 'json' });
+      }
+      
       if (!pairCode) {
         pairCode = generatePairCode();
-        while (activePairings.has(pairCode)) {
-          pairCode = generatePairCode();
+        // Fallback for uniqueness checking
+        while (await env.NEXUS_KV.get(`pair:${pairCode}`)) {
+            pairCode = generatePairCode();
         }
       }
+
+      existing = existing || {};
 
       const roomId = reqRoomId || `room_${pairCode}_${Date.now().toString(36)}`;
       const token = reqToken || crypto.randomUUID();
-
-      const existing = activePairings.get(pairCode) || {};
-
-      // Automatically purge older pairings belonging to the exact same machine
-      if (body.previousPairCode && body.previousPairCode !== pairCode) {
-        activePairings.delete(body.previousPairCode);
-        pendingCommands.delete(body.previousPairCode);
-      }
-      for (const [oldCode, data] of activePairings.entries()) {
-        if (oldCode !== pairCode && ((agentKey && data.agentKey === agentKey) || (mac && data.mac && data.mac === mac))) {
-          activePairings.delete(oldCode);
-          pendingCommands.delete(oldCode);
-        }
-      }
 
       const pairData = {
         pairCode,
@@ -142,7 +121,8 @@ export async function handleRequest(request, env) {
         lastSeen: Date.now()
       };
 
-      activePairings.set(pairCode, pairData);
+      await env.NEXUS_KV.put(`pair:${pairCode}`, JSON.stringify(pairData), { expirationTtl: 3600 }); // 1 hour TTL
+
       if (!activeRooms.has(roomId)) {
         activeRooms.set(roomId, {
           clients: new Set(),
@@ -154,32 +134,11 @@ export async function handleRequest(request, env) {
         activeRooms.get(roomId).config = pairData;
       }
 
-      // Persist status in Cloudflare Edge Cache for GET /api/pair/status
-      try {
-        const cache = caches.default;
-        const statusUrl = `${url.origin}/api/pair/status?code=${pairCode}`;
-        const statusBody = JSON.stringify({
-          success: true,
-          online: true,
-          isOnline: true,
-          hostname: pairData.hostname,
-          targetIp: pairData.localIp,
-          targetMac: pairData.mac,
-          telemetry: pairData.telemetry,
-          lastSeenAgoSeconds: 0
-        });
-        await cache.put(new Request(statusUrl), new Response(statusBody, {
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Cache-Control': 'public, max-age=15'
-          }
-        }));
-      } catch (e) {}
-
-      // Check if there are pending commands to deliver directly to the agent in HTTP response
-      const queue = pendingCommands.get(pairCode) || [];
-      pendingCommands.set(pairCode, []);
+      // Read and clear pending commands
+      const queue = (await env.NEXUS_KV.get(`cmd:${pairCode}`, { type: 'json' })) || [];
+      if (queue.length > 0) {
+        await env.NEXUS_KV.delete(`cmd:${pairCode}`);
+      }
 
       return new Response(JSON.stringify({
         success: true,
@@ -195,7 +154,7 @@ export async function handleRequest(request, env) {
     }
   }
 
-  // 3. POST /api/pair/claim (Phone or Dashboard pairing - ZERO FAIL FALLBACK)
+  // 2. POST /api/pair/claim
   if (url.pathname === '/api/pair/claim' && request.method === 'POST') {
     try {
       const clientIp = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || '127.0.0.1';
@@ -213,68 +172,8 @@ export async function handleRequest(request, env) {
         return new Response(JSON.stringify({ success: false, error: 'Pairing code required' }), { status: 400, headers: corsHeaders });
       }
 
-      let data = activePairings.get(code);
-      if (!data && code.length >= 6) {
-        const roomId = `room_${code}_pc`;
-        if (activeRooms.has(roomId)) {
-          const room = activeRooms.get(roomId);
-          if (room.config && (room.config.localIp || room.config.mac)) {
-            data = room.config;
-          } else if (room.agents && room.agents.size > 0) {
-            data = {
-              pairCode: code,
-              roomId,
-              token: `token_${code}`,
-              targetMac: '',
-              targetIp: '',
-              hostname: 'hajimaPC',
-              agentKey: '',
-              telemetry: null,
-              online: true
-            };
-          }
-        }
-      }
+      const data = await env.NEXUS_KV.get(`pair:${code}`, { type: 'json' });
 
-      // Check Edge Cache for pairing data
-      if (!data) {
-        try {
-          const cache = caches.default;
-          const statusUrl = `${url.origin}/api/pair/status?code=${code}`;
-          const cached = await cache.match(new Request(statusUrl));
-          if (cached) {
-            const st = await cached.json();
-            data = {
-              pairCode: code,
-              roomId: `room_${code}_pc`,
-              token: `token_${code}`,
-              targetMac: st.targetMac,
-              targetIp: st.targetIp,
-              hostname: st.hostname,
-              agentKey: '',
-              telemetry: st.telemetry,
-              online: st.online
-            };
-          }
-        } catch (e) {}
-      }
-
-      // Guaranteed pairing data fallback for 6-digit PINs
-      if (!data && code.length >= 6) {
-        data = {
-          pairCode: code,
-          roomId: `room_${code}_pc`,
-          token: `token_${code}`,
-          targetMac: '74:56:3C:48:E0:7F',
-          targetIp: '192.168.100.50',
-          hostname: 'hajimaPC',
-          agentKey: '',
-          telemetry: null,
-          online: true
-        };
-      }
-
-      // Reject invalid or empty PINs
       if (!data) {
         return new Response(JSON.stringify({ 
           success: false, 
@@ -290,9 +189,9 @@ export async function handleRequest(request, env) {
         pairCode: data.pairCode,
         roomId: data.roomId || `room_${code}_pc`,
         token: data.token || `token_${code}`,
-        targetMac: data.mac || data.targetMac || '',
-        targetIp: data.localIp || data.targetIp || '',
-        hostname: data.hostname || 'hajimaPC',
+        targetMac: data.mac || '',
+        targetIp: data.localIp || '',
+        hostname: data.hostname || 'Nexus-PC',
         agentKey: data.agentKey || '',
         telemetry: data.telemetry,
         online: isOnline
@@ -302,28 +201,13 @@ export async function handleRequest(request, env) {
     }
   }
 
-  // 4. GET /api/pair/status?code=... (Dashboard HTTP Status Polling Fallback)
+  // 3. GET /api/pair/status?code=...
   if (url.pathname === '/api/pair/status' && request.method === 'GET') {
     const code = (url.searchParams.get('code') || '').trim();
 
-    // Check Cloudflare Edge Cache
-    try {
-      const cache = caches.default;
-      const cached = await cache.match(request);
-      if (cached) {
-        return cached;
-      }
-    } catch (e) {}
+    const data = await env.NEXUS_KV.get(`pair:${code}`, { type: 'json' });
 
-    let data = activePairings.get(code);
-    if (!data && code.length >= 6) {
-      const roomId = `room_${code}_pc`;
-      if (activeRooms.has(roomId)) {
-        data = activeRooms.get(roomId).config;
-      }
-    }
-
-    if (data && (data.localIp || data.mac)) {
+    if (data) {
       const hasActiveWs = activeRooms.has(data.roomId) && (activeRooms.get(data.roomId).agents.size > 0);
       const isOnline = hasActiveWs || (Date.now() - (data.lastSeen || 0)) < 25000;
       return new Response(JSON.stringify({
@@ -340,7 +224,7 @@ export async function handleRequest(request, env) {
     return new Response(JSON.stringify({ success: false, online: false, isOnline: false, error: 'PC not found or unregistered' }), { status: 404, headers: corsHeaders });
   }
 
-  // 5. POST /api/command/dispatch (Send command from Dashboard to Android Satellite Gateway via FCM Push + Edge)
+  // 4. POST /api/command/dispatch
   if (url.pathname === '/api/command/dispatch' && request.method === 'POST') {
     try {
       const body = await request.json();
@@ -352,19 +236,8 @@ export async function handleRequest(request, env) {
 
       const cmdObj = { type: 'EXECUTE', action, subAction, payload, reqId, timestamp: Date.now() };
 
-      // 1. Instant High-Priority Google Firebase Push Notification (FCM v1)
-      const topic = `nexus_${code}`;
-      const fcmData = {
-        action: action || '',
-        subAction: subAction || '',
-        reqId: String(reqId),
-        payload: typeof payload === 'object' ? JSON.stringify(payload) : String(payload)
-      };
-      
-      const fcmResult = await sendGoogleFcmPush(topic, fcmData, env);
-
-      // 2. Send via WebSocket to all active room participants
-      const pair = activePairings.get(code);
+      // Try WebSocket delivery first
+      const pair = await env.NEXUS_KV.get(`pair:${code}`, { type: 'json' });
       const roomId = (pair && pair.roomId) || `room_${code}_pc`;
       let wsDelivered = false;
       if (activeRooms.has(roomId)) {
@@ -377,14 +250,29 @@ export async function handleRequest(request, env) {
         }
       }
 
-      // 3. Queue into pendingCommands for HTTP retrieval by Android Satellite & Agent
-      if (!pendingCommands.has(code)) pendingCommands.set(code, []);
-      pendingCommands.get(code).push(cmdObj);
+      // Write command to KV queue (Primary Delivery)
+      let queue = (await env.NEXUS_KV.get(`cmd:${code}`, { type: 'json' })) || [];
+      queue.push(cmdObj);
+      await env.NEXUS_KV.put(`cmd:${code}`, JSON.stringify(queue), { expirationTtl: 3600 });
 
-      const fcmOk = Boolean(fcmResult && fcmResult.ok);
+      // Try FCM push for WAKE actions
+      let fcmResult = null;
+      let fcmOk = false;
+      if (action === 'WAKE' || action === 'WOL') {
+        const topic = `nexus_${code}`;
+        const fcmData = {
+          action: action || '',
+          subAction: subAction || '',
+          reqId: String(reqId),
+          payload: typeof payload === 'object' ? JSON.stringify(payload) : String(payload)
+        };
+        fcmResult = await sendGoogleFcmPush(topic, fcmData, env);
+        fcmOk = Boolean(fcmResult && fcmResult.ok);
+      }
+
       const fcmMsg = wsDelivered
         ? `⚡ Dispatched directly via live WebSocket`
-        : (fcmOk ? `Google FCM Push Sent to [${topic}]` : `Command queued for satellite delivery`);
+        : (fcmOk ? `WAKE Sent via Google FCM Push` : `Command queued for satellite delivery`);
 
       return new Response(JSON.stringify({ 
         success: true, 
@@ -399,23 +287,28 @@ export async function handleRequest(request, env) {
     }
   }
 
-  // 5b. GET /api/command/pending?code=... (Android Satellite polls for queued commands)
+  // 5. GET /api/command/pending?code=...
   if (url.pathname === '/api/command/pending' && request.method === 'GET') {
     const code = (url.searchParams.get('code') || '').trim();
-    const queue = pendingCommands.get(code) || [];
-    pendingCommands.set(code, []);
+    const queue = (await env.NEXUS_KV.get(`cmd:${code}`, { type: 'json' })) || [];
+    if (queue.length > 0) {
+      await env.NEXUS_KV.delete(`cmd:${code}`);
+    }
     return new Response(JSON.stringify({ success: true, commands: queue }), { headers: corsHeaders });
   }
 
-  // 6. POST /api/command/result (Android Satellite or PC Agent posts execution result)
+  // 6. POST /api/command/result
   if (url.pathname === '/api/command/result' && request.method === 'POST') {
     try {
       const body = await request.json();
       const { reqId, result, pairCode, success = true, message = '' } = body;
-      if (reqId) commandResults.set(reqId, { result, success, message, timestamp: Date.now() });
+      if (reqId) {
+        const resData = { result, success, message, timestamp: Date.now() };
+        await env.NEXUS_KV.put(`result:${reqId}`, JSON.stringify(resData), { expirationTtl: 60 });
+      }
 
       // Forward to any connected WebSocket clients
-      const pair = activePairings.get(pairCode);
+      const pair = await env.NEXUS_KV.get(`pair:${pairCode}`, { type: 'json' });
       if (pair && pair.roomId && activeRooms.has(pair.roomId)) {
         const room = activeRooms.get(pair.roomId);
         for (const c of room.clients) {
@@ -429,11 +322,11 @@ export async function handleRequest(request, env) {
     }
   }
 
-  // 7. GET /api/command/result?reqId=... (Dashboard retrieves execution result)
+  // 7. GET /api/command/result?reqId=...
   if (url.pathname === '/api/command/result' && request.method === 'GET') {
     const reqId = url.searchParams.get('reqId');
-    if (commandResults.has(reqId)) {
-      const resData = commandResults.get(reqId);
+    const resData = await env.NEXUS_KV.get(`result:${reqId}`, { type: 'json' });
+    if (resData) {
       return new Response(JSON.stringify({ success: true, result: resData.result, message: resData.message, isSuccess: resData.success }), { headers: corsHeaders });
     }
     return new Response(JSON.stringify({ success: false, pending: true }), { headers: corsHeaders });
@@ -501,11 +394,9 @@ export async function handleRequest(request, env) {
             reqId: msg.reqId || Date.now().toString()
           });
 
-          // Forward to ALL Satellites (Local LAN Wi-Fi Gateways)
           for (const s of room.satellites) {
             try { s.send(executePayload); } catch (e) {}
           }
-          // Forward to direct PC Agents
           for (const a of room.agents) {
             try { a.send(executePayload); } catch (e) {}
           }
@@ -515,7 +406,6 @@ export async function handleRequest(request, env) {
           for (const c of room.clients) {
             try { c.send(raw); } catch (e) {}
           }
-          // Forward Agent announcements and telemetry directly to Satellites as well
           if (role === 'agent') {
             for (const s of room.satellites) {
               try { s.send(raw); } catch (e) {}
@@ -540,7 +430,6 @@ export async function handleRequest(request, env) {
     });
   }
 
-  // Fallback to static assets
   if (env && env.ASSETS) {
     return env.ASSETS.fetch(request);
   }
@@ -571,7 +460,6 @@ async function getGoogleAccessToken(env) {
   let rawKey = env?.FCM_PRIVATE_KEY_B64 || env?.FCM_PRIVATE_KEY || env?.PRIVATE_KEY || env?.FIREBASE_PRIVATE_KEY;
   let projectId = env?.FCM_PROJECT_ID || env?.PROJECT_ID || env?.FIREBASE_PROJECT_ID || 'nexus-satellite';
 
-  // Check if a full service account JSON was provided
   const serviceAccountJson = env?.FIREBASE_SERVICE_ACCOUNT || env?.GOOGLE_APPLICATION_CREDENTIALS || env?.FCM_SERVICE_ACCOUNT || env?.SERVICE_ACCOUNT_JSON;
   if (serviceAccountJson) {
     try {
@@ -583,10 +471,9 @@ async function getGoogleAccessToken(env) {
   }
 
   if (!clientEmail || !rawKey) {
-    throw new Error('FCM credentials missing. Please verify FCM_CLIENT_EMAIL and FCM_PRIVATE_KEY in Cloudflare Pages Environment Variables (under Production).');
+    throw new Error('FCM credentials missing.');
   }
 
-  // Normalize PEM key / Base64 string
   let cleanB64 = rawKey
     .replace(/\\n/g, '')
     .replace(/-----BEGIN [A-Z ]+-----/g, '')
@@ -667,4 +554,3 @@ export default {
     return handleRequest(request, env);
   }
 };
-
