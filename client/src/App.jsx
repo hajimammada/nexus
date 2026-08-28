@@ -36,7 +36,7 @@ import {
   RelayManager 
 } from './utils/api';
 
-const APP_VERSION = 'v3.8.1';
+const APP_VERSION = 'v3.8.2';
 
 export default function App() {
   const [settings, setSettings] = useState(() => getStoredSettings());
@@ -81,6 +81,16 @@ export default function App() {
       token: settings.token,
       onTelemetry: (data) => {
         setTelemetry(data);
+        if (data && data.hostname) {
+          setSettings(prev => {
+            if (prev.hostname !== data.hostname) {
+              const updated = { ...prev, hostname: data.hostname };
+              saveStoredSettings(updated);
+              return updated;
+            }
+            return prev;
+          });
+        }
       },
       onStateChange: (state) => {
         setConnectionState(state);
@@ -138,6 +148,17 @@ export default function App() {
         if (data.online) {
           setConnectionState(prev => ({ ...prev, online: true, source: 'relay' }));
           if (data.telemetry) setTelemetry(data.telemetry);
+          const realName = data.hostname || data.telemetry?.hostname;
+          if (realName) {
+            setSettings(prev => {
+              if (prev.hostname !== realName || (!prev.targetMac && data.targetMac)) {
+                const updated = { ...prev, hostname: realName, targetMac: data.targetMac || prev.targetMac, targetIp: data.targetIp || prev.targetIp };
+                saveStoredSettings(updated);
+                return updated;
+              }
+              return prev;
+            });
+          }
         }
       }
     } catch {}

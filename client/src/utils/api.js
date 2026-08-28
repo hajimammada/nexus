@@ -51,10 +51,11 @@ export async function claimPairCode(pairCode, relayUrl = null) {
 
   const candidateEndpoints = [
     `${baseRelay}/api/pair/claim`,
-    'https://pc.hajimammad.com/api/pair/claim',
-    'http://localhost:48880/api/pair/claim',
-    'https://nexus.hajimammad.com/api/pair/claim'
+    'https://nexus.hajimammad.com/api/pair/claim',
+    'http://localhost:48880/api/pair/claim'
   ];
+
+  let lastError = null;
 
   for (const ep of candidateEndpoints) {
     try {
@@ -63,37 +64,28 @@ export async function claimPairCode(pairCode, relayUrl = null) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pairCode: cleanCode })
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          return {
-            relayUrl: baseRelay,
-            roomId: data.roomId,
-            token: data.token,
-            pairCode: data.pairCode,
-            targetMac: data.targetMac,
-            targetIp: data.targetIp,
-            hostname: data.hostname,
-            agentKey: data.agentKey
-          };
-        }
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        return {
+          relayUrl: baseRelay,
+          roomId: data.roomId,
+          token: data.token,
+          pairCode: data.pairCode,
+          targetMac: data.targetMac || '',
+          targetIp: data.targetIp || '',
+          hostname: data.hostname || 'My-PC',
+          agentKey: data.agentKey || ''
+        };
+      } else if (data && data.error) {
+        lastError = data.error;
       }
     } catch (e) {
-      // Continue to next candidate
+      lastError = e.message;
     }
   }
 
-  // Resilient Zero-Config Fallback: Connect directly to the deterministic PC relay room
-  return {
-    relayUrl: baseRelay,
-    roomId: `room_${cleanCode}_pc`,
-    token: `token_${cleanCode}`,
-    pairCode: cleanCode,
-    targetMac: '',
-    targetIp: '',
-    hostname: 'Nexus-PC',
-    agentKey: ''
-  };
+  // Reject invalid / non-existent PINs with clear, actionable error
+  throw new Error(lastError || 'Invalid 6-digit PIN. No active PC found with this code. Please check your PC Setup wizard or tray agent.');
 }
 
 // -------------------------------------------------------------
