@@ -340,6 +340,7 @@ export async function handleRequest(request, env) {
       const fcmResult = await sendGoogleFcmPush(topic, fcmData, env);
 
       // 2. Send via WebSocket to all active room participants
+      const pair = activePairings.get(code);
       const roomId = (pair && pair.roomId) || `room_${code}_pc`;
       let wsDelivered = false;
       if (activeRooms.has(roomId)) {
