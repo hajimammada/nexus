@@ -3,6 +3,25 @@ plugins {
     id 'com.google.gms.google-services'
 }
 
+def getAppVersion() {
+    def versionFile = file("../../VERSION")
+    if (versionFile.exists()) {
+        return versionFile.text.trim()
+    }
+    def pkgFile = file("../../package.json")
+    if (pkgFile.exists()) {
+        def parsedJson = new groovy.json.JsonSlurper().parseText(pkgFile.text)
+        return parsedJson.version
+    }
+    return "3.9.1"
+}
+
+def getAppVersionCode() {
+    def ver = getAppVersion()
+    def digits = ver.replaceAll("[^0-9]", "")
+    return digits.isInteger() ? digits.toInteger() : 391
+}
+
 android {
     namespace 'com.nexus.satellite'
     compileSdk 34
@@ -11,8 +30,8 @@ android {
         applicationId "com.nexus.satellite"
         minSdk 24
         targetSdk 34
-        versionCode 390
-        versionName "3.9.0"
+        versionCode getAppVersionCode()
+        versionName getAppVersion()
     }
 
     buildTypes {

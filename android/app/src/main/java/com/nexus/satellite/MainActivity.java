@@ -93,6 +93,11 @@ public class MainActivity extends AppCompatActivity {
         scrollLogs = findViewById(R.id.scrollLogs);
         btnClearLogs = findViewById(R.id.btnClearLogs);
 
+        TextView tvFooter = findViewById(R.id.tvFooterVersion);
+        if (tvFooter != null) {
+            tvFooter.setText("Nexus Satellite v" + BuildConfig.VERSION_NAME + " • Direct LAN & Cloud Gateway");
+        }
+
         NexusFirebaseMessagingService.subscribeToCurrentTopic(this);
         loadSavedState();
         checkBatteryOptimization();
@@ -322,7 +327,7 @@ public class MainActivity extends AppCompatActivity {
             RequestBody body = RequestBody.create(mediaType, json.toString());
             Request request = new Request.Builder()
                     .url(relayUrl + "/api/pair/claim")
-                    .addHeader("User-Agent", "Nexus-Android-Satellite/3.8.3")
+                    .addHeader("User-Agent", "Nexus-Android-Satellite/" + BuildConfig.VERSION_NAME)
                     .post(body)
                     .build();
 

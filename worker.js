@@ -52,9 +52,21 @@ function generatePairCode() {
 export async function handleRequest(request, env) {
   const url = new URL(request.url);
 
-  // Pass through non-API requests to static assets in Cloudflare Pages
+  // Pass through non-API requests to static assets in Cloudflare Pages (with zero cache on downloads)
   if (!url.pathname.startsWith('/api') && env && env.ASSETS && request.method === 'GET') {
-    return env.ASSETS.fetch(request);
+    const assetRes = await env.ASSETS.fetch(request);
+    if (url.pathname.includes('/download/') || url.pathname.endsWith('.apk') || url.pathname.endsWith('.zip')) {
+      const newHeaders = new Headers(assetRes.headers);
+      newHeaders.set('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+      newHeaders.set('Pragma', 'no-cache');
+      newHeaders.set('Expires', '0');
+      return new Response(assetRes.body, {
+        status: assetRes.status,
+        statusText: assetRes.statusText,
+        headers: newHeaders
+      });
+    }
+    return assetRes;
   }
 
   // 1. CORS Preflight

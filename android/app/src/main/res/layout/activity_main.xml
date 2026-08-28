@@ -295,10 +295,11 @@
         </ScrollView>
 
         <TextView
+            android:id="@+id/tvFooterVersion"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Nexus Suite v3.5.0 • Direct LAN &amp; Cloud Gateway"
+            android:text="Nexus Satellite • Direct LAN &amp; Cloud Gateway"
             android:textColor="#475569"
             android:textSize="9sp" />
 

@@ -22,6 +22,7 @@ id cardTargetInfo
 id dotStatus
 id etPin
 id scrollLogs
+id tvFooterVersion
 id tvLogs
 id tvStatus
 id tvTargetIp

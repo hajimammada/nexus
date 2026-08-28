@@ -133,7 +133,7 @@ public class RelayService extends Service {
 
         Request request = new Request.Builder()
                 .url(wsUrl)
-                .addHeader("User-Agent", "Nexus-Android-Satellite/3.8.7")
+                .addHeader("User-Agent", "Nexus-Android-Satellite/" + BuildConfig.VERSION_NAME)
                 .build();
         webSocket = client.newWebSocket(request, new WebSocketListener() {
             @Override

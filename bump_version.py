@@ -20,6 +20,11 @@ NEW_CODE = int(parts[0]) * 100 + int(parts[1]) * 10 + int(parts[2])
 
 print(f"Bumping project version to v{NEW_VERSION} (code: {NEW_CODE})...")
 
+# 0. root VERSION file
+with open(os.path.join(root_dir, "VERSION"), "w", encoding="utf-8") as f:
+    f.write(NEW_VERSION)
+print(f"✓ Updated VERSION -> {NEW_VERSION}")
+
 # 1. package.json files
 for rel in ["package.json", "client/package.json", "agent/package.json", "satellite/package.json"]:
     p = os.path.join(root_dir, rel)
