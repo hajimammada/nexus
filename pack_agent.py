@@ -50,6 +50,13 @@ with zipfile.ZipFile(pc_zip_pub, "w", zipfile.ZIP_DEFLATED) as z:
 
 shutil.copyfile(pc_zip_pub, pc_zip_dist)
 
+# Sync latest compiled APK to public and dist downloads
+apk_built = os.path.join(root_dir, "android", "app", "build", "outputs", "apk", "debug", "app-debug.apk")
+if os.path.exists(apk_built):
+    shutil.copyfile(apk_built, os.path.join(pub_dl, "nexus-satellite.apk"))
+    shutil.copyfile(apk_built, os.path.join(dist_dl, "nexus-satellite.apk"))
+    print(f"✓ Synced latest APK to client/public and dist download targets ({os.path.getsize(apk_built)} bytes)")
+
 # Verify
 with zipfile.ZipFile(pc_zip_dist, "r") as z:
     for name in z.namelist():
