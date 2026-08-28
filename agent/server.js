@@ -373,14 +373,25 @@ async function registerAndConnectRelay(previousPairCode = null) {
           const syncData = await res.json();
           if (syncData && Array.isArray(syncData.commands) && syncData.commands.length > 0) {
             for (const cmd of syncData.commands) {
-              if (cmd.action === 'POWER') {
-                const sub = cmd.subAction || cmd.payload?.action;
+              const act = (cmd.action || '').toUpperCase();
+              const sub = (cmd.subAction || cmd.payload?.action || '').toLowerCase();
+              if (act === 'POWER') {
                 if (sub === 'sleep') executeSleep();
                 else if (sub === 'restart') executeRestart();
                 else if (sub === 'shutdown') executeShutdown();
                 else if (sub === 'lock') executeLock();
                 else if (sub === 'unlock') executeUnlock();
-              } else if (cmd.action === 'TERMINAL') {
+              } else if (act === 'LOCK') {
+                executeLock();
+              } else if (act === 'UNLOCK') {
+                executeUnlock();
+              } else if (act === 'SLEEP') {
+                executeSleep();
+              } else if (act === 'RESTART') {
+                executeRestart();
+              } else if (act === 'SHUTDOWN') {
+                executeShutdown();
+              } else if (act === 'TERMINAL') {
                 const terminalCmd = cmd.payload?.command || cmd.command;
                 const result = await executeTerminal(terminalCmd);
                 try {
@@ -388,7 +399,7 @@ async function registerAndConnectRelay(previousPairCode = null) {
                     method: 'POST',
                     headers: {
                       'Content-Type': 'application/json',
-                      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Nexus-Agent/3.8.3'
+                      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Nexus-Agent/4.0.1'
                     },
                     body: JSON.stringify({ reqId: cmd.reqId, result, pairCode: activePairCode })
                   });
@@ -538,7 +549,7 @@ setInterval(() => {
 // Local REST Endpoints (Local Wi-Fi Access)
 // -------------------------------------------------------------
 app.get('/api/ping', (req, res) => {
-  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '4.0.0' });
+  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '4.0.1' });
 });
 
 app.get('/api/pairing', (req, res) => {
@@ -686,7 +697,7 @@ udpServer.on('message', (msg, rinfo) => {
     pairCode: activePairCode,
     agentKey: AGENT_KEY,
     port: PORT,
-    version: '4.0.0'
+    version: '4.0.1'
   });
   udpServer.send(responsePayload, rinfo.port, rinfo.address, (err) => {
     if (!err) {
