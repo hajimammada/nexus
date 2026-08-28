@@ -525,7 +525,7 @@ namespace Nexus.Installer
             var footerGrid = new Grid();
             footerGrid.Children.Add(new TextBlock
             {
-                Text = "Nexus v3.8.5 Native",
+                Text = "Nexus v3.8.6 Native",
                 FontSize = 11,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#475569")),
                 VerticalAlignment = VerticalAlignment.Center
@@ -796,6 +796,7 @@ namespace Nexus.Installer
                         if (pairBackup != null)
                         {
                             File.WriteAllText(pairFile, pairBackup);
+                            pairCodeResult = ExtractJsonField(pairBackup, "pairCode");
                         }
                         else
                         {
@@ -803,6 +804,19 @@ namespace Nexus.Installer
                             string freshJson = string.Format("{{\n  \"pairCode\": \"{0}\",\n  \"roomId\": \"room_{0}_pc\",\n  \"token\": \"token_{0}\",\n  \"updatedAt\": \"{1}\"\n}}", freshPin, DateTime.UtcNow.ToString("o"));
                             File.WriteAllText(pairFile, freshJson);
                             pairCodeResult = freshPin;
+
+                            // Instant cloud pre-registration so pairing works immediately
+                            try
+                            {
+                                using (var client = new CustomWebClient(4000))
+                                {
+                                    client.Headers[HttpRequestHeader.ContentType] = "application/json";
+                                    client.Headers[HttpRequestHeader.UserAgent] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Nexus-Agent/3.8.6";
+                                    string regBody = string.Format("{{\"pairCode\":\"{0}\",\"roomId\":\"room_{0}_pc\",\"token\":\"token_{0}\",\"hostname\":\"{1}\",\"pcName\":\"{1}\"}}", freshPin, Environment.MachineName);
+                                    client.UploadString("https://nexus.hajimammad.com/api/pair/register", regBody);
+                                }
+                            }
+                            catch { }
                         }
                     }
                     catch { }
@@ -979,10 +993,12 @@ namespace Nexus.Installer
         {
             try
             {
+                byte[] bytes = System.Text.Encoding.Unicode.GetBytes(script);
+                string base64 = Convert.ToBase64String(bytes);
                 var psi = new ProcessStartInfo
                 {
                     FileName = "powershell.exe",
-                    Arguments = string.Format("-NoProfile -ExecutionPolicy Bypass -Command \"{0}\"", script),
+                    Arguments = "-NoProfile -ExecutionPolicy Bypass -EncodedCommand " + base64,
                     CreateNoWindow = true,
                     UseShellExecute = false,
                     WindowStyle = ProcessWindowStyle.Hidden

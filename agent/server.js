@@ -419,7 +419,11 @@ function connectRelayWs() {
     }
 
     const wsUrl = `${RELAY_URL.replace(/^http/, 'ws')}/api/relay?room=${encodeURIComponent(activeRoomId)}&role=agent&token=${encodeURIComponent(activeToken)}`;
-    relayWs = new WebSocket(wsUrl);
+    relayWs = new WebSocket(wsUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Nexus-Agent/3.8.6'
+      }
+    });
 
     relayWs.on('open', () => {
       isConnecting = false;
@@ -520,7 +524,7 @@ setInterval(() => {
 // Local REST Endpoints (Local Wi-Fi Access)
 // -------------------------------------------------------------
 app.get('/api/ping', (req, res) => {
-  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '3.8.5' });
+  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '3.8.6' });
 });
 
 app.get('/api/pairing', (req, res) => {
