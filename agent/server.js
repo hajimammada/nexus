@@ -59,19 +59,23 @@ function safeCompare(a, b) {
 function authenticate(req, res, next) {
   const authHeader = req.headers['authorization'];
   const customHeader = req.headers['x-agent-key'];
+  const pairHeader = req.headers['x-pair-code'];
   const token = (authHeader && authHeader.startsWith('Bearer ')) 
     ? authHeader.slice(7) 
     : customHeader;
 
   const reqKey = token || req.query.key;
+  const reqPin = pairHeader || req.query.pin || req.query.code;
 
-  if (!AGENT_KEY || !reqKey || !safeCompare(reqKey, AGENT_KEY)) {
-    return res.status(401).json({ 
-      success: false, 
-      error: 'Unauthorized: Invalid or missing Agent Secret Key.' 
-    });
+  if ((AGENT_KEY && reqKey && safeCompare(reqKey, AGENT_KEY)) ||
+      (activePairCode && reqPin && safeCompare(reqPin, activePairCode))) {
+    return next();
   }
-  next();
+
+  return res.status(401).json({ 
+    success: false, 
+    error: 'Unauthorized: Invalid or missing Agent Secret Key / PIN.' 
+  });
 }
 
 // Helper: Network Details
@@ -524,7 +528,7 @@ setInterval(() => {
 // Local REST Endpoints (Local Wi-Fi Access)
 // -------------------------------------------------------------
 app.get('/api/ping', (req, res) => {
-  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '3.9.7' });
+  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '3.9.8' });
 });
 
 app.get('/api/pairing', (req, res) => {
@@ -670,8 +674,9 @@ udpServer.on('message', (msg, rinfo) => {
     ip: net.ip,
     mac: net.mac,
     pairCode: activePairCode,
+    agentKey: AGENT_KEY,
     port: PORT,
-    version: '3.9.7'
+    version: '3.9.8'
   });
   udpServer.send(responsePayload, rinfo.port, rinfo.address, (err) => {
     if (!err) {

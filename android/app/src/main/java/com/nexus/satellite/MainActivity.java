@@ -64,6 +64,7 @@ public class MainActivity extends AppCompatActivity {
     private String discoveredMac = "";
     private String discoveredHostname = "";
     private String discoveredPin = "";
+    private String discoveredAgentKey = "";
 
     // Diagnostic Console Log
     private TextView tvLogs;
@@ -196,7 +197,7 @@ public class MainActivity extends AppCompatActivity {
         btnTestPing.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                executeLanAction("Ping & Health Check", "/api/status", "GET", null);
+                executeLanAction("Ping & Health Check", "/api/ping", "GET", null);
             }
         });
 
@@ -207,7 +208,7 @@ public class MainActivity extends AppCompatActivity {
                 SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
                 final String mac = prefs.getString("targetMac", "");
                 if (mac == null || mac.isEmpty()) {
-                    appendLog("❌ No PC linked. Please enter a valid 6-digit PIN above first.");
+                    appendLog("❌ No PC linked. Please scan Wi-Fi and link your PC first.");
                     Toast.makeText(MainActivity.this, "No PC Linked", Toast.LENGTH_SHORT).show();
                     return;
                 }
@@ -271,10 +272,11 @@ public class MainActivity extends AppCompatActivity {
         SharedPreferences prefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
         String ip = prefs.getString("targetIp", "");
         final String agentKey = prefs.getString("agentKey", "");
+        final String currentPin = prefs.getString("currentPin", "");
 
         if (ip == null || ip.isEmpty()) {
-            appendLog("❌ Cannot execute [" + actionName + "]: Satellite is not linked to any PC. Enter a valid 6-digit PIN above first.");
-            Toast.makeText(MainActivity.this, "Please pair with a PC first", Toast.LENGTH_SHORT).show();
+            appendLog("❌ Cannot execute [" + actionName + "]: Satellite is not linked to any PC. Scan Wi-Fi to link first.");
+            Toast.makeText(MainActivity.this, "Please link with a PC first", Toast.LENGTH_SHORT).show();
             return;
         }
         final String url = "http://" + ip + ":48880" + endpoint;
@@ -286,6 +288,9 @@ public class MainActivity extends AppCompatActivity {
         if (agentKey != null && !agentKey.isEmpty()) {
             reqBuilder.addHeader("Authorization", "Bearer " + agentKey);
             reqBuilder.addHeader("x-agent-key", agentKey);
+        }
+        if (currentPin != null && !currentPin.isEmpty()) {
+            reqBuilder.addHeader("x-pair-code", currentPin);
         }
 
         if ("POST".equalsIgnoreCase(method)) {
@@ -443,6 +448,7 @@ public class MainActivity extends AppCompatActivity {
                     final String ip = json.optString("ip", responsePacket.getAddress().getHostAddress());
                     final String mac = json.optString("mac", "");
                     final String pin = json.optString("pairCode", "");
+                    final String key = json.optString("agentKey", "");
 
                     if (!ip.isEmpty() || !mac.isEmpty()) {
                         foundViaUdp = true;
@@ -450,6 +456,7 @@ public class MainActivity extends AppCompatActivity {
                         discoveredIp = ip;
                         discoveredMac = mac;
                         discoveredPin = pin;
+                        discoveredAgentKey = key;
 
                         SharedPreferences currentPrefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
                         final boolean alreadyPaired = currentPrefs.getBoolean("paired", false);
@@ -492,11 +499,13 @@ public class MainActivity extends AppCompatActivity {
                     final String host = json.optString("hostname", "PC");
                     final String mac = json.optString("mac", "");
                     final String pin = json.optString("pairCode", "");
+                    final String key = json.optString("agentKey", "");
 
                     discoveredHostname = host;
                     discoveredIp = ip;
                     discoveredMac = mac;
                     discoveredPin = pin;
+                    discoveredAgentKey = key;
                     found = true;
 
                     SharedPreferences currentPrefs = getSharedPreferences("NexusSatellitePrefs", Context.MODE_PRIVATE);
@@ -553,6 +562,7 @@ public class MainActivity extends AppCompatActivity {
                 .putString("targetMac", discoveredMac)
                 .putString("targetIp", discoveredIp)
                 .putString("hostname", discoveredHostname)
+                .putString("agentKey", discoveredAgentKey)
                 .apply();
 
         try {
