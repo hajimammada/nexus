@@ -145,6 +145,29 @@ export async function handleRequest(request, env) {
         activeRooms.get(roomId).config = pairData;
       }
 
+      // Persist status in Cloudflare Edge Cache for GET /api/pair/status
+      try {
+        const cache = caches.default;
+        const statusUrl = `${url.origin}/api/pair/status?code=${pairCode}`;
+        const statusBody = JSON.stringify({
+          success: true,
+          online: true,
+          isOnline: true,
+          hostname: pairData.hostname,
+          targetIp: pairData.localIp,
+          targetMac: pairData.mac,
+          telemetry: pairData.telemetry,
+          lastSeenAgoSeconds: 0
+        });
+        await cache.put(new Request(statusUrl), new Response(statusBody, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'public, max-age=15'
+          }
+        }));
+      } catch (e) {}
+
       // Check if there are pending commands to deliver directly to the agent in HTTP response
       const queue = pendingCommands.get(pairCode) || [];
       pendingCommands.set(pairCode, []);
@@ -192,8 +215,31 @@ export async function handleRequest(request, env) {
         }
       }
 
+      // Check Edge Cache for pairing data
+      if (!data) {
+        try {
+          const cache = caches.default;
+          const statusUrl = `${url.origin}/api/pair/status?code=${code}`;
+          const cached = await cache.match(new Request(statusUrl));
+          if (cached) {
+            const st = await cached.json();
+            data = {
+              pairCode: code,
+              roomId: `room_${code}_pc`,
+              token: `token_${code}`,
+              targetMac: st.targetMac,
+              targetIp: st.targetIp,
+              hostname: st.hostname,
+              agentKey: '',
+              telemetry: st.telemetry,
+              online: st.online
+            };
+          }
+        } catch (e) {}
+      }
+
       // Reject unregistered, fake, or random PINs
-      if (!data || (!data.localIp && !data.mac)) {
+      if (!data || (!data.localIp && !data.mac && !data.targetIp && !data.targetMac)) {
         return new Response(JSON.stringify({ 
           success: false, 
           error: `PIN [${code}] is not registered. Please check the PIN on your PC.` 
@@ -206,12 +252,12 @@ export async function handleRequest(request, env) {
       return new Response(JSON.stringify({
         success: true,
         pairCode: data.pairCode,
-        roomId: data.roomId,
-        token: data.token,
-        targetMac: data.mac,
-        targetIp: data.localIp,
+        roomId: data.roomId || `room_${code}_pc`,
+        token: data.token || `token_${code}`,
+        targetMac: data.mac || data.targetMac || '',
+        targetIp: data.localIp || data.targetIp || '',
         hostname: data.hostname || 'hajimaPC',
-        agentKey: data.agentKey,
+        agentKey: data.agentKey || '',
         telemetry: data.telemetry,
         online: isOnline
       }), { headers: corsHeaders });
@@ -223,6 +269,16 @@ export async function handleRequest(request, env) {
   // 4. GET /api/pair/status?code=... (Dashboard HTTP Status Polling Fallback)
   if (url.pathname === '/api/pair/status' && request.method === 'GET') {
     const code = (url.searchParams.get('code') || '').trim();
+
+    // Check Cloudflare Edge Cache
+    try {
+      const cache = caches.default;
+      const cached = await cache.match(request);
+      if (cached) {
+        return cached;
+      }
+    } catch (e) {}
+
     let data = activePairings.get(code);
     if (!data && code.length >= 6) {
       const roomId = `room_${code}_pc`;
