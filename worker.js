@@ -211,6 +211,18 @@ export async function handleRequest(request, env) {
           const room = activeRooms.get(roomId);
           if (room.config && (room.config.localIp || room.config.mac)) {
             data = room.config;
+          } else if (room.agents && room.agents.size > 0) {
+            data = {
+              pairCode: code,
+              roomId,
+              token: `token_${code}`,
+              targetMac: '',
+              targetIp: '',
+              hostname: 'hajimaPC',
+              agentKey: '',
+              telemetry: null,
+              online: true
+            };
           }
         }
       }

@@ -524,7 +524,7 @@ setInterval(() => {
 // Local REST Endpoints (Local Wi-Fi Access)
 // -------------------------------------------------------------
 app.get('/api/ping', (req, res) => {
-  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '3.9.4' });
+  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '3.9.5' });
 });
 
 app.get('/api/pairing', (req, res) => {
@@ -671,7 +671,7 @@ udpServer.on('message', (msg, rinfo) => {
     mac: net.mac,
     pairCode: activePairCode,
     port: PORT,
-    version: '3.9.4'
+    version: '3.9.5'
   });
   udpServer.send(responsePayload, rinfo.port, rinfo.address, (err) => {
     if (!err) {
