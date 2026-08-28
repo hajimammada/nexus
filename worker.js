@@ -10,6 +10,25 @@ const activePairings = new Map();  // pairCode -> { mac, localIp, hostname, agen
 const activeRooms = new Map();     // roomId -> { clients: Set, satellites: Set, agents: Set, config: Object }
 const pendingCommands = new Map(); // pairCode -> Array of pending commands
 const commandResults = new Map();  // reqId -> result
+const ipRateLimits = new Map();    // ip -> { count: number, resetAt: number, blockedUntil: number }
+
+function checkRateLimit(ip, maxAttempts = 15, windowMs = 60000, blockDurationMs = 180000) {
+  const now = Date.now();
+  let record = ipRateLimits.get(ip);
+  if (!record || now > record.resetAt) {
+    record = { count: 0, resetAt: now + windowMs, blockedUntil: 0 };
+    ipRateLimits.set(ip, record);
+  }
+  if (now < record.blockedUntil) {
+    return false;
+  }
+  record.count++;
+  if (record.count > maxAttempts) {
+    record.blockedUntil = now + blockDurationMs;
+    return false;
+  }
+  return true;
+}
 
 function cleanExpiredData() {
   const now = Date.now();
@@ -17,6 +36,11 @@ function cleanExpiredData() {
     if (now - (data.lastSeen || data.createdAt) > 3600 * 1000) {
       activePairings.delete(code);
       pendingCommands.delete(code);
+    }
+  }
+  for (const [ip, rec] of ipRateLimits.entries()) {
+    if (now > rec.resetAt && now > rec.blockedUntil) {
+      ipRateLimits.delete(ip);
     }
   }
 }
@@ -112,6 +136,14 @@ export async function handleRequest(request, env) {
   // 3. POST /api/pair/claim (Phone or Dashboard pairing - ZERO FAIL FALLBACK)
   if (url.pathname === '/api/pair/claim' && request.method === 'POST') {
     try {
+      const clientIp = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || '127.0.0.1';
+      if (!checkRateLimit(clientIp, 15, 60000, 180000)) {
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: 'Too many failed claim attempts. Rate limit exceeded. Please wait 3 minutes.' 
+        }), { status: 429, headers: corsHeaders });
+      }
+
       const body = await request.json();
       const code = (body.pairCode || body.code || '').trim().replace(/[-\s]/g, '');
 

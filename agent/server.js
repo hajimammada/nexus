@@ -434,6 +434,11 @@ function connectRelayWs() {
         console.log('[RELAY-WS] Command received:', msg);
 
         if (msg.type === 'EXECUTE') {
+          const providedToken = msg.token || msg.payload?.token || msg.agentKey || msg.payload?.agentKey;
+          if (providedToken && !safeCompare(providedToken, activeToken) && !safeCompare(providedToken, AGENT_KEY)) {
+            console.warn('[SECURITY] Blocked unauthenticated command with invalid session token.');
+            return;
+          }
           if (msg.action === 'POWER') {
             const sub = msg.subAction || msg.payload?.action;
             if (sub === 'sleep') executeSleep();
@@ -504,7 +509,7 @@ setInterval(() => {
 // Local REST Endpoints (Local Wi-Fi Access)
 // -------------------------------------------------------------
 app.get('/api/ping', (req, res) => {
-  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '3.7.8' });
+  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '3.7.9' });
 });
 
 app.get('/api/pairing', (req, res) => {

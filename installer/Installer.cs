@@ -525,7 +525,7 @@ namespace Nexus.Installer
             var footerGrid = new Grid();
             footerGrid.Children.Add(new TextBlock
             {
-                Text = "Nexus v3.7.8 Native",
+                Text = "Nexus v3.7.9 Native",
                 FontSize = 11,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#475569")),
                 VerticalAlignment = VerticalAlignment.Center
@@ -748,8 +748,8 @@ namespace Nexus.Installer
                 await Task.Run(new Action(() =>
                 {
                     RunPowerShell(
-                        "if (-not (Get-NetFirewallRule -Name 'NexusAgentPort' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -Name 'NexusAgentPort' -DisplayName 'Nexus PC Agent (Port 48880)' -Direction Inbound -Protocol TCP -LocalPort 48880 -Action Allow -ErrorAction SilentlyContinue | Out-Null; } " +
-                        "if (-not (Get-NetFirewallRule -Name 'NexusOpenSSH' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -Name 'NexusOpenSSH' -DisplayName 'OpenSSH Server (Port 22)' -Direction Inbound -Protocol TCP -LocalPort 22 -Action Allow -ErrorAction SilentlyContinue | Out-Null; }"
+                        "if (-not (Get-NetFirewallRule -Name 'NexusAgentPort' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -Name 'NexusAgentPort' -DisplayName 'Nexus PC Agent (Port 48880)' -Direction Inbound -Protocol TCP -LocalPort 48880 -Profile Domain,Private -Action Allow -ErrorAction SilentlyContinue | Out-Null; } " +
+                        "if (-not (Get-NetFirewallRule -Name 'NexusOpenSSH' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -Name 'NexusOpenSSH' -DisplayName 'OpenSSH Server (Port 22)' -Direction Inbound -Protocol TCP -LocalPort 22 -Profile Domain,Private -Action Allow -ErrorAction SilentlyContinue | Out-Null; }"
                     );
                 }));
             }

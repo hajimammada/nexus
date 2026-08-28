@@ -95,6 +95,7 @@ public class MainActivity extends AppCompatActivity {
 
         NexusFirebaseMessagingService.subscribeToCurrentTopic(this);
         loadSavedState();
+        checkBatteryOptimization();
 
         android.content.BroadcastReceiver logReceiver = new android.content.BroadcastReceiver() {
             @Override
@@ -439,5 +440,16 @@ public class MainActivity extends AppCompatActivity {
         tvTargetName.setText("Target: No PC Linked");
         tvTargetIp.setText("LAN IP: Not Linked");
         tvTargetMac.setText("Target MAC: Not Linked");
+    }
+
+    private void checkBatteryOptimization() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+                if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                    appendLog("⚠️ Notice: For 24/7 continuous relay, disable battery optimization for this app in Android settings.");
+                }
+            } catch (Exception ignored) {}
+        }
     }
 }
