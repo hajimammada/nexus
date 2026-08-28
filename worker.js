@@ -219,7 +219,7 @@ export async function handleRequest(request, env) {
       }
     }
 
-    if (data) {
+    if (data && (data.localIp || data.mac)) {
       const hasActiveWs = activeRooms.has(data.roomId) && (activeRooms.get(data.roomId).agents.size > 0);
       const isOnline = hasActiveWs || (Date.now() - (data.lastSeen || 0)) < 25000;
       return new Response(JSON.stringify({
