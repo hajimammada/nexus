@@ -165,23 +165,22 @@ export async function handleRequest(request, env) {
       }
 
       let data = activePairings.get(code);
-      if (!data) {
-        // Deterministic Self-Healing: Reconstruct room from PIN
+      if (!data && code.length >= 6) {
         const roomId = `room_${code}_pc`;
-        const token = `token_${code}`;
-        const room = activeRooms.get(roomId);
-        data = room?.config || {
-          pairCode: code,
-          roomId,
-          token,
-          mac: '',
-          localIp: '',
-          hostname: 'Nexus-PC',
-          agentKey: '',
-          telemetry: null,
-          lastSeen: Date.now()
-        };
-        activePairings.set(code, data);
+        if (activeRooms.has(roomId)) {
+          const room = activeRooms.get(roomId);
+          if (room.config && (room.config.localIp || room.config.mac)) {
+            data = room.config;
+          }
+        }
+      }
+
+      // Reject unregistered, fake, or random PINs
+      if (!data || (!data.localIp && !data.mac)) {
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: `PIN [${code}] is not registered. Please check the PIN on your PC.` 
+        }), { status: 404, headers: corsHeaders });
       }
 
       const hasActiveWs = activeRooms.has(data.roomId) && (activeRooms.get(data.roomId).agents.size > 0);
@@ -194,7 +193,7 @@ export async function handleRequest(request, env) {
         token: data.token,
         targetMac: data.mac,
         targetIp: data.localIp,
-        hostname: data.hostname,
+        hostname: data.hostname || 'hajimaPC',
         agentKey: data.agentKey,
         telemetry: data.telemetry,
         online: isOnline

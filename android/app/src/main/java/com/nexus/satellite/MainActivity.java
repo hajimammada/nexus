@@ -355,10 +355,25 @@ public class MainActivity extends AppCompatActivity {
                     try {
                         final JSONObject resJson = new JSONObject(resStr);
                         if (resJson.optBoolean("success", false)) {
-                            final String roomId = resJson.getString("roomId");
-                            final String token = resJson.getString("token");
                             final String targetMac = resJson.optString("targetMac", "");
                             final String targetIp = resJson.optString("targetIp", "");
+
+                            if (targetIp.isEmpty() && targetMac.isEmpty()) {
+                                final String errMsg = "PIN [" + pin + "] is not registered on any active PC.";
+                                mainHandler.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        btnConnect.setEnabled(true);
+                                        btnConnect.setText("CONNECT & START 24/7 RELAY");
+                                        appendLog("❌ Pairing Failed: " + errMsg);
+                                        Toast.makeText(MainActivity.this, errMsg, Toast.LENGTH_LONG).show();
+                                    }
+                                });
+                                return;
+                            }
+
+                            final String roomId = resJson.getString("roomId");
+                            final String token = resJson.getString("token");
                             final String hostname = resJson.optString("hostname", "PC");
                             final String agentKey = resJson.optString("agentKey", "");
 
