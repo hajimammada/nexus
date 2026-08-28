@@ -525,7 +525,7 @@ namespace Nexus.Installer
             var footerGrid = new Grid();
             footerGrid.Children.Add(new TextBlock
             {
-                Text = "Nexus v3.8.4 Native",
+                Text = "Nexus v3.8.5 Native",
                 FontSize = 11,
                 Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#475569")),
                 VerticalAlignment = VerticalAlignment.Center
@@ -962,18 +962,13 @@ namespace Nexus.Installer
 
         private string ExtractJsonField(string json, string field)
         {
+            if (string.IsNullOrEmpty(json) || string.IsNullOrEmpty(field)) return "";
             try
             {
-                var key = "\"" + field + "\":\"";
-                var start = json.IndexOf(key);
-                if (start >= 0)
+                var match = System.Text.RegularExpressions.Regex.Match(json, "\"" + field + "\"\\s*:\\s*\"([^\"]+)\"");
+                if (match.Success)
                 {
-                    start += key.Length;
-                    var end = json.IndexOf("\"", start);
-                    if (end > start)
-                    {
-                        return json.Substring(start, end - start);
-                    }
+                    return match.Groups[1].Value;
                 }
             }
             catch { }

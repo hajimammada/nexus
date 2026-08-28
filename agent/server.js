@@ -520,7 +520,7 @@ setInterval(() => {
 // Local REST Endpoints (Local Wi-Fi Access)
 // -------------------------------------------------------------
 app.get('/api/ping', (req, res) => {
-  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '3.8.4' });
+  res.json({ status: 'online', appName: 'Nexus PC Companion Agent', version: '3.8.5' });
 });
 
 app.get('/api/pairing', (req, res) => {
